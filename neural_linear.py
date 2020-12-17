@@ -33,6 +33,7 @@ import warnings
 warnings.filterwarnings("ignore")
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
+import logging
 
 class NeuralLinear(object):
     '''
@@ -96,7 +97,7 @@ class NeuralLinear(object):
         print('begin updating representation')
         data_loader = torch.utils.data.DataLoader(
                 SimpleDataset(self.train_x, self.train_y),
-                batch_size=64, shuffle=True)
+                batch_size=64, shuffle = False)
 
         self.model.eval()
         # self.clsfier.eval()
@@ -114,7 +115,7 @@ class NeuralLinear(object):
             self.latent_z = latent_z
             assert len(self.latent_z) == len(self.train_x)
 
-    def train_blr(self, train_loader_in, train_loader_out, model, criterion, num_classes, optimizer, epoch, save_dir):
+    def train_blr(self, train_loader_in, train_loader_out, model, criterion, num_classes, optimizer, epoch, save_dir, log):
         """Train for one epoch on the training set"""
         batch_time = AverageMeter()
 
@@ -124,7 +125,7 @@ class NeuralLinear(object):
         in_losses = AverageMeter()
         out_losses = AverageMeter()
         nat_top1 = AverageMeter()
-        print("######## Start training NN at epoch {} ########".format(epoch) )
+        log.debug("######## Start training NN at epoch {} ########".format(epoch) )
         end = time.time()
 
         epoch_buffer_in = torch.empty(0, 3, 32, 32)
@@ -189,7 +190,7 @@ class NeuralLinear(object):
             batch_time.update(time.time() - end)
             end = time.time()
             if i % self.args.print_freq == 0:
-                print('Epoch: [{0}][{1}/{2}]\t'
+                log.debug('Epoch: [{0}][{1}/{2}]\t'
                     'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                     'In Loss {in_loss.val:.4f} ({in_loss.avg:.4f})\t'
                     'Prec@1 {nat_top1.val:.3f} ({nat_top1.avg:.3f})\t'
@@ -245,16 +246,16 @@ class NeuralLinear(object):
                 else: 
                     beta_s = torch.cat((beta_s, multivariates), dim = 0)
             self.beta_s = beta_s.float()
-            print("beta: ", self.beta_s)
+            # print("beta: ", self.beta_s)
 
     def predict(self, x):
         latent_z = self.model.get_representation(x)
         return torch.matmul(self.beta_s, latent_z.T).T 
 
 
-    def update_bays_reg_BDQN(self):
+    def update_bays_reg_BDQN(self, log):
         with torch.no_grad():    
-            print("######## Start updating bayesian linear layer ########")
+            log.debug("######## Start updating bayesian linear layer ########")
             # Update action posterior with formulas: \beta | z,y ~ N(mu_q, cov_q)
             z = self.latent_z.double().cuda()
             y = self.train_y.squeeze().cuda() 
@@ -266,8 +267,8 @@ class NeuralLinear(object):
             #A = torch.as_tensor(s/self.sigma_n + 1/self.sigma*self.eye)
             #B = torch.as_tensor(np.dot(z.T, y))/self.sigma_n
             A_eig_val, A_eig_vec = torch.symeig(A, eigenvectors=True)
-            print("Before inverse. eigenvalue (pd): {}".format(A_eig_val[:20]))
-            print("Before inverse. eigenvalue (pd): {}".format(A_eig_val[-20:]))
+            log.debug("Before inverse. eigenvalue (pd): {}".format(A_eig_val[:20]))
+            log.debug("Before inverse. eigenvalue (pd): {}".format(A_eig_val[-20:]))
             A = A.detach().cpu().numpy()
             # inv = torch.inverse(A)
             inv = np.linalg.inv(A)
@@ -275,8 +276,8 @@ class NeuralLinear(object):
             self.mu_w[0] = torch.matmul(inv, B).squeeze()
             temp_cov = self.sigma*inv        
             eig_val, eig_vec = torch.symeig(temp_cov, eigenvectors=True)
-            print("After inverse. eigenvalue (pd): {}".format(eig_val[:20]) )
-            print("After inverse. eigenvalue (pd): {}".format(eig_val[-20:]) )
+            log.debug("After inverse. eigenvalue (pd): {}".format(eig_val[:20]) )
+            log.debug("After inverse. eigenvalue (pd): {}".format(eig_val[-20:]) )
             if torch.any(eig_val < 0):
                 self.cov_w[0] = torch.matmul(torch.matmul(eig_vec, torch.diag(torch.abs(eig_val))), torch.t(eig_vec))
             else:
@@ -285,9 +286,9 @@ class NeuralLinear(object):
 
   
 
-    def validate(self, val_loader, model, criterion, epoch):
+    def validate(self, val_loader, model, criterion, epoch, log):
         """Perform validation on the validation set"""
-        print("######## Start validating at epoch {} ########".format(epoch))
+        log.debug("######## Start validating at epoch {} ########".format(epoch))
         batch_time = AverageMeter()
         losses = AverageMeter()
         top1 = AverageMeter()
@@ -316,14 +317,14 @@ class NeuralLinear(object):
             end = time.time()
 
             if i % self.args.print_freq == 0:
-                print('Test: [{0}/{1}]\t'
+                log.debug('Test: [{0}/{1}]\t'
                     'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                     'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                     'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
                         i, len(val_loader), batch_time=batch_time, loss=losses,
                         top1=top1))
 
-        print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+        log.debug(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
         # log to TensorBoard
         if self.args.tensorboard:
             log_value('val_loss', losses.avg, epoch)

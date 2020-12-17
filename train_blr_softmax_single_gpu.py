@@ -1,6 +1,6 @@
 import argparse
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "6"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
 import sys
@@ -32,9 +32,11 @@ from tensorboard_logger import configure, log_value
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 import json
+import logging
 
 from torch.utils.data import Sampler
 from neural_linear import SimpleDataset
+
 
 parser = argparse.ArgumentParser(description='PyTorch DenseNet Training')
 # parser.add_argument('--gpu', default=3, type=int, help='the preferred gpu to use')
@@ -101,20 +103,22 @@ parser.add_argument('--b0', type=float, default=6.0, help='b0')
 parser.add_argument('--lambda_prior', type=float, default=0.25, help='lambda_prior')
 parser.add_argument('--sigma', type=float, default= 100, help='control var for weights')
 parser.add_argument('--sigma_n', type=float, default=1, help='control var for noise')
-parser.add_argument('--conf', type=float, default=4.0, help='control ground truth for bayesian linear regression.3.9--0.98; 4.6 --0.99')
+parser.add_argument('--conf', type=float, default=4.6, help='control ground truth for bayesian linear regression.3.9--0.98; 4.6 --0.99')
 
 # saving, naming and logging
 parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
-parser.add_argument('--name', default = "debug_atom_11", type=str,
+parser.add_argument('--name', default = "3_ours_sigma_100_half", type=str,
                     help='name of experiment')
 parser.add_argument('--tensorboard',
                     help='Log progress to TensorBoard', action='store_true')
+parser.add_argument('--log_name',
+                    help='Name of the Log File', type = str, default = "info.log")
 
 #deprecated
 # parser.add_argument('--total_sample_times', default = 1, type=int,
 #                     help='total sample times per epoch for OOD') 
-parser.add_argument('--ood_factor', type=float, default= 2,
+parser.add_argument('--ood_factor', type=float, default= 1,
                  help='ood_dataset_size = len(train_loader.dataset) * ood_factor default = 2.0')
 
 parser.set_defaults(bottleneck=True)
@@ -131,7 +135,6 @@ save_state_file = os.path.join(directory, 'args.txt')
 fw = open(save_state_file, 'w')
 print(state, file=fw)
 fw.close()
-
 
 
 torch.manual_seed(1)
@@ -156,6 +159,16 @@ def main():
 
     kwargs = {'num_workers': 1, 'pin_memory': True}
 
+    # setup_logger(args.log_name, os.path.join(directory, args.log_name))
+    log = logging.getLogger(__name__)
+    formatter = logging.Formatter('%(asctime)s : %(message)s')
+    fileHandler = logging.FileHandler(os.path.join(directory, args.log_name), mode='w')
+    fileHandler.setFormatter(formatter)
+    streamHandler = logging.StreamHandler()
+    streamHandler.setFormatter(formatter)
+    log.setLevel(logging.DEBUG)
+    log.addHandler(fileHandler)
+    log.addHandler(streamHandler) 
     if args.in_dataset == "CIFAR-10":
         # Data loading code
         normalizer = transforms.Normalize(mean=[x/255.0 for x in [125.3, 123.0, 113.9]],
@@ -296,13 +309,13 @@ def main():
         print("will sample {} ood from it for training".format(ood_dataset_size))
 
 
-        selected_ood_loader = select_ood_atom(ood_loader, model, bayes_nn, args.batch_size * 2, 
-                                             num_classes, pool_size, epoch, ood_dataset_size)
-        # selected_ood_loader = select_ood(ood_loader, model, bayes_nn, args.batch_size, 
-        #                                      num_classes, pool_size, epoch, ood_dataset_size, use_ATOM= False)
-        bayes_nn.train_blr(train_loader, selected_ood_loader, model, criterion, num_classes, optimizer, epoch, directory)
+        # selected_ood_loader = select_ood_atom(ood_loader, model, bayes_nn, args.batch_size * 1, 
+        #                                      num_classes, pool_size, epoch, ood_dataset_size, log)
+        selected_ood_loader = select_ood(ood_loader, model, bayes_nn, args.batch_size * 1, 
+                                             num_classes, pool_size, epoch, ood_dataset_size, log)
+        bayes_nn.train_blr(train_loader, selected_ood_loader, model, criterion, num_classes, optimizer, epoch, directory, log)
         bayes_nn.update_representation()
-        bayes_nn.update_bays_reg_BDQN()
+        bayes_nn.update_bays_reg_BDQN(log)
         bayes_nn.sample_BDQN()
 
 
@@ -320,12 +333,11 @@ def main():
 
 
         # evaluate on validation set
-        prec1 =  bayes_nn.validate(val_loader, model, criterion, epoch)
+        prec1 =  bayes_nn.validate(val_loader, model, criterion, epoch, log)
         #DEBUG
-        print("cov and mean checking...")
-        print("cov:", bayes_nn.cov_w[0,:6,:6])
-        
-        print("mu: ", bayes_nn.mu_w[0][:20])
+        log.debug("cov and mean checking...")
+        log.debug(f"cov: {bayes_nn.cov_w[0,:6,:6]}")
+        log.debug(f"mu: {bayes_nn.mu_w[0][:20]}")
 
         if epoch % 5 == 0:
             torch.save(bayes_nn.cov_w[:,:8,:8], os.path.join(directory, "cov_at_epoch{}.txt".format(epoch)) )
@@ -339,7 +351,7 @@ def main():
             }, epoch + 1)
             
 
-def select_ood(ood_loader, model, bayes_model, batch_size, num_classes, pool_size, epoch, ood_dataset_size = None, use_ATOM = True):
+def select_ood(ood_loader, model, bayes_model, batch_size, num_classes, pool_size, epoch, ood_dataset_size, log):
 
     # start at a random point of the outlier dataset; this induces more randomness without obliterating locality
     offset = np.random.randint(len(ood_loader.dataset))
@@ -350,7 +362,7 @@ def select_ood(ood_loader, model, bayes_model, batch_size, num_classes, pool_siz
 
     out_iter = iter(ood_loader)
 
-    print('######## Start selecting OOD samples ########')
+    log.debug('######## Start selecting OOD samples ########')
     start = time.time()
 
     # select ood samples
@@ -398,23 +410,21 @@ def select_ood(ood_loader, model, bayes_model, batch_size, num_classes, pool_siz
     all_ood_conf = np.array(all_ood_conf)
     argmin_abs_val = np.argsort(all_abs_val) 
     softmax_all_ood_conf = np.array(softmax_all_ood_conf).squeeze()
-    if epoch < 10 and use_ATOM: 
-        print('select according to ATOM')
-        N = all_ood_input.shape[0]
-        quantile = 0.125
-        indices = np.argsort(softmax_all_ood_conf )
-        selected_indices = indices[int(quantile*N):int(quantile*N)+ood_dataset_size]
-    else:
-        selected_indices = argmin_abs_val[: ood_dataset_size]
-        selected_ood_conf = all_ood_conf[selected_indices]
-        print('Max OOD Conf: ', np.max(all_ood_conf), 'Min OOD Conf: ', np.min(all_ood_conf), 'Average OOD Conf: ', np.mean(all_ood_conf))
-        print('Selected Max OOD Conf: ', np.max(selected_ood_conf), 'Selected Min OOD Conf: ', np.min(selected_ood_conf), 'Selected Average OOD Conf: ', np.mean(selected_ood_conf))
+    # if epoch < 10 and use_ATOM: 
+    #     print('select according to ATOM')
+    #     N = all_ood_input.shape[0]
+    #     quantile = 0.125
+    #     indices = np.argsort(softmax_all_ood_conf )
+    #     selected_indices = indices[int(quantile*N):int(quantile*N)+ood_dataset_size]
+    # else:
+    selected_indices = argmin_abs_val[: ood_dataset_size]
+    selected_ood_conf = all_ood_conf[selected_indices]
+    log.debug(f'Max OOD Conf: {np.max(all_ood_conf)} Min OOD Conf: {np.min(all_ood_conf)} Average OOD Conf: {np.mean(all_ood_conf)}')
+    log.debug(f'Selected Max OOD Conf: {np.max(selected_ood_conf)} Selected Min OOD Conf: {np.min(selected_ood_conf)} Selected Average OOD Conf: {np.mean(selected_ood_conf)}')
     softmax_selected_ood_conf = softmax_all_ood_conf[selected_indices]
     print('Total OOD samples: ', len(selected_indices))
-    print('(Softmax classifier) Max OOD Conf: ', np.max(softmax_all_ood_conf), 'Min OOD Conf: ', np.min(softmax_all_ood_conf), 
-                                                                            'Average OOD Conf: ', np.mean(softmax_all_ood_conf))
-    print('(Softmax classifier) Selected Max OOD Conf: ', np.max(softmax_selected_ood_conf), 'Selected Min OOD Conf: ', np.min(softmax_selected_ood_conf), 
-                                                                                        'Selected Average OOD Conf: ', np.mean(softmax_selected_ood_conf))
+    log.debug(f'(Softmax classifier) Max OOD Conf: {np.max(softmax_all_ood_conf)} Min OOD Conf: {np.min(softmax_all_ood_conf)} Average OOD Conf: {np.mean(softmax_all_ood_conf)}')
+    log.debug(f'(Softmax classifier) Selected Max OOD Conf: {np.max(softmax_selected_ood_conf)} Selected Min OOD Conf: {np.min(softmax_selected_ood_conf)} Selected Average OOD Conf: {np.mean(softmax_selected_ood_conf)}')
     ood_images = all_ood_input[selected_indices]
     ood_labels = (torch.ones(ood_dataset_size) * num_classes).long()
     ood_train_loader = torch.utils.data.DataLoader(
@@ -425,7 +435,7 @@ def select_ood(ood_loader, model, bayes_model, batch_size, num_classes, pool_siz
 
     return ood_train_loader
 
-def select_ood_atom(ood_loader, model, bayes_model, batch_size, num_classes, pool_size, epoch, ood_dataset_size = None):
+def select_ood_atom(ood_loader, model, bayes_model, batch_size, num_classes, pool_size, epoch, ood_dataset_size, log):
 
     # start at a random point of the outlier dataset; this induces more randomness without obliterating locality
     offset = np.random.randint(len(ood_loader.dataset))
@@ -434,7 +444,7 @@ def select_ood_atom(ood_loader, model, bayes_model, batch_size, num_classes, poo
 
     out_iter = iter(ood_loader)
 
-    print('Start selecting OOD samples...')
+    log.debug('######## Start selecting OOD samples ########')
     start = time.time()
 
     # select ood samples
@@ -478,13 +488,11 @@ def select_ood_atom(ood_loader, model, bayes_model, batch_size, num_classes, poo
     selected_indices = indices[int(quantile*N):int(quantile*N)+ood_dataset_size]
     softmax_selected_ood_conf = softmax_all_ood_conf[selected_indices]
     selected_ood_conf = all_ood_conf[selected_indices]  #DEBUG
-    print('Max OOD Conf: ', np.max(all_ood_conf), 'Min OOD Conf: ', np.min(all_ood_conf), 'Average OOD Conf: ', np.mean(all_ood_conf))  #DEBUG
-    print('Selected Max OOD Conf: ', np.max(selected_ood_conf), 'Selected Min OOD Conf: ', np.min(selected_ood_conf), 'Selected Average OOD Conf: ', np.mean(selected_ood_conf))  #DEBUG
+    log.debug(f'Max OOD Conf: {np.max(all_ood_conf)} Min OOD Conf: {np.min(all_ood_conf)} Average OOD Conf: {np.mean(all_ood_conf)}')
+    log.debug(f'Selected Max OOD Conf: {np.max(selected_ood_conf)} Selected Min OOD Conf: {np.min(selected_ood_conf)} Selected Average OOD Conf: {np.mean(selected_ood_conf)}')
     print('Total OOD samples: ', len(selected_indices))
-    print('(Softmax classifier) Max OOD Conf: ', np.max(softmax_all_ood_conf), 'Min OOD Conf: ', np.min(softmax_all_ood_conf), 
-                                                                            'Average OOD Conf: ', np.mean(softmax_all_ood_conf))
-    print('(Softmax classifier) Selected Max OOD Conf: ', np.max(softmax_selected_ood_conf), 'Selected Min OOD Conf: ', np.min(softmax_selected_ood_conf), 
-                                                                                        'Selected Average OOD Conf: ', np.mean(softmax_selected_ood_conf))
+    log.debug(f'(Softmax classifier) Max OOD Conf: {np.max(softmax_all_ood_conf)} Min OOD Conf: {np.min(softmax_all_ood_conf)} Average OOD Conf: {np.mean(softmax_all_ood_conf)}')
+    log.debug(f'(Softmax classifier) Selected Max OOD Conf: {np.max(softmax_selected_ood_conf)} Selected Min OOD Conf: {np.min(softmax_selected_ood_conf)} Selected Average OOD Conf: {np.mean(softmax_selected_ood_conf)}')
     ood_images = all_ood_input[selected_indices]
     ood_labels = (torch.ones(ood_dataset_size) * num_classes).long()
     ood_train_loader = torch.utils.data.DataLoader(
@@ -590,6 +598,7 @@ def save_checkpoint(state, epoch):
         os.makedirs(directory)
     filename = directory + 'checkpoint_{}.pth.tar'.format(epoch)
     torch.save(state, filename)
+
 
 if __name__ == '__main__':
     main()
