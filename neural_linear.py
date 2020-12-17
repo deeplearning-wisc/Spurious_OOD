@@ -79,17 +79,17 @@ class NeuralLinear(object):
         in_len = epoch_buf_in.shape[0]
         out_len = epoch_buf_out.shape[0]
         ground_truth_in = torch.full( (in_len, 1), -1 * self.args.conf, dtype = torch.float)
-        ground_truth_out = torch.full( (out_len.shape[0], 1), self.args.conf, dtype = torch.float)
+        ground_truth_out = torch.full( (out_len, 1), self.args.conf, dtype = torch.float)
         if epoch < 4:
             self.train_x = torch.cat((self.train_x, epoch_buf_in), dim = 0)
-            self.train_y = torch.cat((self.train_y, ground_truth_in), dim = 0)
             self.train_x = torch.cat((self.train_x, epoch_buf_out), dim = 0)
+            self.train_y = torch.cat((self.train_y, ground_truth_in), dim = 0)
             self.train_y = torch.cat((self.train_y, ground_truth_out), dim = 0)
-
         else:
             cyclic_id = epoch % BUF_SIZE
-            replace_idx = np.arange(cyclic_id * (out_len + in_len) + in_len, (cyclic_id +1) * (out_len + in_len))
+            replace_idx = np.arange(cyclic_id * (out_len + in_len) + in_len, (cyclic_id + 1) * (out_len + in_len))
             self.train_x[replace_idx] =  epoch_buf_out
+            self.train_y[replace_idx] =  ground_truth_out
 
     def update_representation(self):
         latent_z = None
@@ -104,7 +104,7 @@ class NeuralLinear(object):
             for i, (images, labels) in enumerate(data_loader):
                 #images = images.cuda()
                 # labels = labels.cuda().float()
-                partial_latent_z = self.model.module.get_representation(images.cuda())
+                partial_latent_z = self.model.get_representation(images.cuda())
                 # outputs = self.model(images.cuda())
                 # partial_latent_z = self.clsfier.module.intermediate_forward(outputs)
                 if latent_z == None: 
@@ -124,7 +124,7 @@ class NeuralLinear(object):
         in_losses = AverageMeter()
         out_losses = AverageMeter()
         nat_top1 = AverageMeter()
-
+        print("######## Start training NN at epoch {} ########".format(epoch) )
         end = time.time()
 
         epoch_buffer_in = torch.empty(0, 3, 32, 32)
@@ -203,19 +203,19 @@ class NeuralLinear(object):
                         in_confs=in_confs))
 
 
-        # self.push_to_cyclic_buffer(epoch_buffer_in, epoch_buffer_out, epoch)
+        self.push_to_cyclic_buffer(epoch_buffer_in, epoch_buffer_out, epoch)
 
-        if (epoch + 1) % self.args.save_data_epoch == 0:
-            print("Now: Saving selected OOD and ID in epoch: ", epoch)
-            for i, (in_set, out_set) in enumerate(zip(train_loader_in, train_loader_out)):
-                in_input, out_input = in_set[0], out_set[0]
-                all_ood_selected_per_epoch = out_input.cpu() if i == 0 else torch.cat( (all_ood_selected_per_epoch,out_input.cpu()), dim = 0 )
-                all_id_selected_per_epoch = in_input.cpu() if i == 0 else torch.cat( (all_id_selected_per_epoch,in_input.cpu()), dim = 0 )
-            selected_data = {
-                    "ID":  all_id_selected_per_epoch,
-                    "OOD": all_ood_selected_per_epoch
-                }
-            torch.save(selected_data, os.path.join(save_dir, "selected_data_at_epoch{}.data".format(epoch)) )
+        # if (epoch + 1) % self.args.save_data_epoch == 0:
+        #     print("Now: Saving selected OOD and ID in epoch: ", epoch)
+        #     for i, (in_set, out_set) in enumerate(zip(train_loader_in, train_loader_out)):
+        #         in_input, out_input = in_set[0], out_set[0]
+        #         all_ood_selected_per_epoch = out_input.cpu() if i == 0 else torch.cat( (all_ood_selected_per_epoch,out_input.cpu()), dim = 0 )
+        #         all_id_selected_per_epoch = in_input.cpu() if i == 0 else torch.cat( (all_id_selected_per_epoch,in_input.cpu()), dim = 0 )
+        #     selected_data = {
+        #             "ID":  all_id_selected_per_epoch,
+        #             "OOD": all_ood_selected_per_epoch
+        #         }
+        #     torch.save(selected_data, os.path.join(save_dir, "selected_data_at_epoch{}.data".format(epoch)) )
         # log to TensorBoard
         if self.args.tensorboard:
             log_value('nat_train_acc', nat_top1.avg, epoch)
@@ -245,15 +245,16 @@ class NeuralLinear(object):
                 else: 
                     beta_s = torch.cat((beta_s, multivariates), dim = 0)
             self.beta_s = beta_s.float()
+            print("beta: ", self.beta_s)
 
     def predict(self, x):
-        latent_z = self.model.module.get_representation(x)
+        latent_z = self.model.get_representation(x)
         return torch.matmul(self.beta_s, latent_z.T).T 
 
 
     def update_bays_reg_BDQN(self):
         with torch.no_grad():    
-            print("updating bayesian linear layer")
+            print("######## Start updating bayesian linear layer ########")
             # Update action posterior with formulas: \beta | z,y ~ N(mu_q, cov_q)
             z = self.latent_z.double().cuda()
             y = self.train_y.squeeze().cuda() 
@@ -265,8 +266,8 @@ class NeuralLinear(object):
             #A = torch.as_tensor(s/self.sigma_n + 1/self.sigma*self.eye)
             #B = torch.as_tensor(np.dot(z.T, y))/self.sigma_n
             A_eig_val, A_eig_vec = torch.symeig(A, eigenvectors=True)
-            print("before inverse. eigenvalue (pd): {}".format(A_eig_val[:20]))
-            print("before inverse. eigenvalue (pd): {}".format(A_eig_val[-20:]))
+            print("Before inverse. eigenvalue (pd): {}".format(A_eig_val[:20]))
+            print("Before inverse. eigenvalue (pd): {}".format(A_eig_val[-20:]))
             A = A.detach().cpu().numpy()
             # inv = torch.inverse(A)
             inv = np.linalg.inv(A)
@@ -274,8 +275,8 @@ class NeuralLinear(object):
             self.mu_w[0] = torch.matmul(inv, B).squeeze()
             temp_cov = self.sigma*inv        
             eig_val, eig_vec = torch.symeig(temp_cov, eigenvectors=True)
-            print("after inverse. eigenvalue (pd): {}".format(eig_val[:20]) )
-            print("after inverse. eigenvalue (pd): {}".format(eig_val[-20:]) )
+            print("After inverse. eigenvalue (pd): {}".format(eig_val[:20]) )
+            print("After inverse. eigenvalue (pd): {}".format(eig_val[-20:]) )
             if torch.any(eig_val < 0):
                 self.cov_w[0] = torch.matmul(torch.matmul(eig_vec, torch.diag(torch.abs(eig_val))), torch.t(eig_vec))
             else:
@@ -286,6 +287,7 @@ class NeuralLinear(object):
 
     def validate(self, val_loader, model, criterion, epoch):
         """Perform validation on the validation set"""
+        print("######## Start validating at epoch {} ########".format(epoch))
         batch_time = AverageMeter()
         losses = AverageMeter()
         top1 = AverageMeter()
@@ -304,9 +306,6 @@ class NeuralLinear(object):
             # validate NN with sigmoid
             # new_target = torch.nn.functional.one_hot(target, model.module.output_dim).float()
             # loss = criterion(output, new_target.to(output.device))
-
-        
-
             # measure accuracy and record loss
             prec1 = accuracy(output.data, target, topk=(1,))[0]
             losses.update(loss.data, input.size(0))

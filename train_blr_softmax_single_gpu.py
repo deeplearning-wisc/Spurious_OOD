@@ -1,6 +1,6 @@
 import argparse
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "6"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
 import sys
@@ -39,13 +39,13 @@ from neural_linear import SimpleDataset
 parser = argparse.ArgumentParser(description='PyTorch DenseNet Training')
 # parser.add_argument('--gpu', default=3, type=int, help='the preferred gpu to use')
 
-parser.add_argument('--in-dataset', default="CIFAR-10", type=str, help='in-distribution dataset e.g. CIFAR-10')
+parser.add_argument('--in-dataset', default="SVHN", type=str, help='in-distribution dataset e.g. CIFAR-10')
 parser.add_argument('--model-arch', default='densenet', type=str, help='model architecture e.g. simplenet densenet')
 
 parser.add_argument('--save-epoch', default= 10, type=int,
                     help='save the model every save_epoch') # freq; save model state_dict()
-parser.add_argument('--save-data-epoch', default= 120, type=int,
-                    help='save the sampled ood every save_data_epoch') # freq; save model state_dict()
+parser.add_argument('--save-data-epoch', default= 100, type=int,
+                    help='save the sampled ood every save_data_epoch') # freq; save data
 parser.add_argument('--print-freq', '-p', default=10, type=int,
                     help='print frequency (default: 10)') # print every print-freq batches during training
 
@@ -105,8 +105,8 @@ parser.add_argument('--conf', type=float, default=4.0, help='control ground trut
 
 # saving, naming and logging
 parser.add_argument('--resume', default='', type=str,
-                    help='path to latest checkpoint (def  ault: none)')
-parser.add_argument('--name', default = "debug_hard_ntom_single", type=str,
+                    help='path to latest checkpoint (default: none)')
+parser.add_argument('--name', default = "debug_atom_11", type=str,
                     help='name of experiment')
 parser.add_argument('--tensorboard',
                     help='Log progress to TensorBoard', action='store_true')
@@ -114,7 +114,7 @@ parser.add_argument('--tensorboard',
 #deprecated
 # parser.add_argument('--total_sample_times', default = 1, type=int,
 #                     help='total sample times per epoch for OOD') 
-parser.add_argument('--ood_factor', type=float, default= 1,
+parser.add_argument('--ood_factor', type=float, default= 2,
                  help='ood_dataset_size = len(train_loader.dataset) * ood_factor default = 2.0')
 
 parser.set_defaults(bottleneck=True)
@@ -259,7 +259,7 @@ def main():
 
     # define loss function (criterion) and pptimizer
     criterion = nn.CrossEntropyLoss().cuda()
-     # sigmoid 
+    # sigmoid 
     # criterion = nn.BCEWithLogitsLoss().cuda()
 
 
@@ -289,41 +289,43 @@ def main():
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     #CORE
-    print("starting core")
-    # bayes_nn.sample_BDQN()
+    bayes_nn.sample_BDQN()
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, lr_schedule)
         print("in every epoch, the total ood pool size is : ", args.ood_batch_size * args.pool_size )
         print("will sample {} ood from it for training".format(ood_dataset_size))
 
-        # selected_ood_loader = select_ood(ood_loader, model, bayes_nn, args.batch_size * 2, 
-        #                                      num_classes, pool_size, epoch, ood_dataset_size, use_ATOM= False)
-        # bayes_nn.train_blr(train_loader, selected_ood_loader, model, criterion, num_classes, optimizer, epoch, directory)
-        # bayes_nn.update_representation()
-        # bayes_nn.update_bays_reg_BDQN()
-        # bayes_nn.sample_BDQN()
 
-
-        for sub_train_loader in train_loaders: 
-            # selected_ood_loader = select_ood(ood_loader, model, bayes_nn, args.batch_size * 2, 
-            #                                  num_classes, pool_size, epoch, ood_dataset_size, use_ATOM= False)
-            # bayes_nn.train_blr(sub_train_loader, selected_ood_loader, model, criterion, num_classes, optimizer, epoch, directory)
-            # bayes_nn.update_representation()
-            # bayes_nn.update_bays_reg_BDQN()
-            # bayes_nn.sample_BDQN()
-
-            selected_ood_loader = select_ood_atom(ood_loader, model, bayes_nn, args.batch_size * 2, 
+        selected_ood_loader = select_ood_atom(ood_loader, model, bayes_nn, args.batch_size * 2, 
                                              num_classes, pool_size, epoch, ood_dataset_size)
-            bayes_nn.train_blr(sub_train_loader, selected_ood_loader, model, criterion, num_classes, optimizer, epoch, directory)
+        # selected_ood_loader = select_ood(ood_loader, model, bayes_nn, args.batch_size, 
+        #                                      num_classes, pool_size, epoch, ood_dataset_size, use_ATOM= False)
+        bayes_nn.train_blr(train_loader, selected_ood_loader, model, criterion, num_classes, optimizer, epoch, directory)
+        bayes_nn.update_representation()
+        bayes_nn.update_bays_reg_BDQN()
+        bayes_nn.sample_BDQN()
+
+
+        # for sub_train_loader in train_loaders: 
+        #     selected_ood_loader = select_ood(ood_loader, model, bayes_nn, args.batch_size * 2, 
+        #                                      num_classes, pool_size, epoch, ood_dataset_size, use_ATOM= False)
+        #     bayes_nn.train_blr(sub_train_loader, selected_ood_loader, model, criterion, num_classes, optimizer, epoch, directory)
+        #     bayes_nn.update_representation()
+        #     bayes_nn.update_bays_reg_BDQN()
+        #     bayes_nn.sample_BDQN()
+
+            # selected_ood_loader = select_ood_atom(ood_loader, model, bayes_nn, args.batch_size * 2, 
+            #                                  num_classes, pool_size, epoch, ood_dataset_size)
+            # bayes_nn.train_blr(sub_train_loader, selected_ood_loader, model, criterion, num_classes, optimizer, epoch, directory)
 
 
         # evaluate on validation set
         prec1 =  bayes_nn.validate(val_loader, model, criterion, epoch)
         #DEBUG
-        # print("cov and mean checking...")
-        # print("cov:", bayes_nn.cov_w[0,:6,:6])
+        print("cov and mean checking...")
+        print("cov:", bayes_nn.cov_w[0,:6,:6])
         
-        # print("mu: ", bayes_nn.mu_w[0][:20])
+        print("mu: ", bayes_nn.mu_w[0][:20])
 
         if epoch % 5 == 0:
             torch.save(bayes_nn.cov_w[:,:8,:8], os.path.join(directory, "cov_at_epoch{}.txt".format(epoch)) )
@@ -348,7 +350,7 @@ def select_ood(ood_loader, model, bayes_model, batch_size, num_classes, pool_siz
 
     out_iter = iter(ood_loader)
 
-    print('Start selecting OOD samples...')
+    print('######## Start selecting OOD samples ########')
     start = time.time()
 
     # select ood samples
@@ -439,7 +441,7 @@ def select_ood_atom(ood_loader, model, bayes_model, batch_size, num_classes, poo
     model.eval()
     with torch.no_grad():
         all_ood_input = []
-        all_ood_conf = []
+        all_ood_conf = []  #DEBUG
         softmax_all_ood_conf = []
         for k in range(pool_size): 
             if k % 50 == 0:
@@ -456,6 +458,10 @@ def select_ood_atom(ood_loader, model, bayes_model, batch_size, num_classes, poo
 
             input = out_set[0] # 128, 3, 32, 32
             #softmax output
+            output = bayes_model.predict(input.cuda()) #DEBUG
+            prob = torch.sigmoid(output)              #DEBUG
+
+            all_ood_conf.extend(prob.detach().cpu().numpy()) #DEBUG
             softmax_classifier_output = model(input.cuda())
             softmax_conf = F.softmax(softmax_classifier_output, dim=1)[:,-1]
             softmax_all_ood_conf.extend(softmax_conf.detach().cpu().numpy())
@@ -463,6 +469,7 @@ def select_ood_atom(ood_loader, model, bayes_model, batch_size, num_classes, poo
 
     all_ood_input = torch.cat(all_ood_input, 0)
     softmax_all_ood_conf = np.array(softmax_all_ood_conf).squeeze()
+    all_ood_conf = np.array(all_ood_conf) #DEBUG
 
     # ood selection 
     N = all_ood_input.shape[0]
@@ -470,6 +477,9 @@ def select_ood_atom(ood_loader, model, bayes_model, batch_size, num_classes, poo
     indices = np.argsort(softmax_all_ood_conf )
     selected_indices = indices[int(quantile*N):int(quantile*N)+ood_dataset_size]
     softmax_selected_ood_conf = softmax_all_ood_conf[selected_indices]
+    selected_ood_conf = all_ood_conf[selected_indices]  #DEBUG
+    print('Max OOD Conf: ', np.max(all_ood_conf), 'Min OOD Conf: ', np.min(all_ood_conf), 'Average OOD Conf: ', np.mean(all_ood_conf))  #DEBUG
+    print('Selected Max OOD Conf: ', np.max(selected_ood_conf), 'Selected Min OOD Conf: ', np.min(selected_ood_conf), 'Selected Average OOD Conf: ', np.mean(selected_ood_conf))  #DEBUG
     print('Total OOD samples: ', len(selected_indices))
     print('(Softmax classifier) Max OOD Conf: ', np.max(softmax_all_ood_conf), 'Min OOD Conf: ', np.min(softmax_all_ood_conf), 
                                                                             'Average OOD Conf: ', np.mean(softmax_all_ood_conf))
