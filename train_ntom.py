@@ -1,6 +1,6 @@
 import argparse
 import os
-
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
 import sys
 
 import shutil
@@ -26,14 +26,14 @@ import utils.svhn_loader as svhn
 from tensorboard_logger import configure, log_value
 
 parser = argparse.ArgumentParser(description='PyTorch DenseNet Training')
-parser.add_argument('--gpu', default='2', type=str, help='which gpu to use')
+# parser.add_argument('--gpu', default='3', type=str, help='which gpu to use')
 
 parser.add_argument('--in-dataset', default="CIFAR-10", type=str, help='in-distribution dataset')
 parser.add_argument('--model-arch', default='densenet', type=str, help='model architecture')
 parser.add_argument('--auxiliary-dataset', default='80m_tiny_images', 
                     choices=['80m_tiny_images', 'imagenet'], type=str, help='which auxiliary dataset to use')
 
-parser.add_argument('--quantile', default=0.125, type=float, help='quantile')
+parser.add_argument('--quantile', default=0, type=float, help='quantile')
 
 parser.add_argument('--epsilon', default=8.0, type=float, help='epsilon')
 parser.add_argument('--iters', default=5, type=int,
@@ -45,7 +45,7 @@ parser.add_argument('--pool-size', default=1000, type=int,
 
 parser.add_argument('--beta', default=1.0, type=float, help='beta for out_loss')
 
-parser.add_argument('--name', default = "ntom_cifar_x2_3rd" , type=str,
+parser.add_argument('--name', default = "3_ntom_original" , type=str,
                     help='name of experiment')
 
 parser.add_argument('--epochs', default=100, type=int,
@@ -100,8 +100,7 @@ fw = open(save_state_file, 'w')
 print(state, file=fw)
 fw.close()
 
-os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-
+# os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 torch.manual_seed(1)
 np.random.seed(1)
 
@@ -170,12 +169,12 @@ def main():
             batch_size=args.batch_size, shuffle=False, **kwargs)
 
         args.epochs = 20
-        args.save_epoch = 2
+        args.save_epoch = 5
         lr_schedule=[10, 15, 18]
         pool_size = int(len(train_loader.dataset) * 8 / args.ood_batch_size) + 1
         num_classes = 10
 
-    ood_dataset_size = len(train_loader.dataset) * 1
+    ood_dataset_size = len(train_loader.dataset) * 2
 
     print('OOD Dataset Size: ', ood_dataset_size)
 
@@ -234,10 +233,9 @@ def main():
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch, lr_schedule)
         # train for one epoch
-        for train_loader in train_loaders: 
-            selected_ood_loader = select_ood(ood_loader, model, args.batch_size * 2, num_classes, pool_size, ood_dataset_size, args.quantile)
+        selected_ood_loader = select_ood(ood_loader, model, args.batch_size * 2, num_classes, pool_size, ood_dataset_size, args.quantile)
 
-            train_ntom(train_loader, selected_ood_loader, model, criterion, num_classes, optimizer, epoch)
+        train_ntom(train_loader, selected_ood_loader, model, criterion, num_classes, optimizer, epoch)
 
         # evaluate on validation set
         prec1 = validate(val_loader, model, criterion, epoch, num_classes)
@@ -268,7 +266,8 @@ def select_ood(ood_loader, model, batch_size, num_classes, pool_size, ood_datase
         all_ood_input = []
         all_ood_conf = []
         for k in range(pool_size):
-
+            if k % 50 == 0:
+                print("ood selection batch ", k)
             try:
                 out_set = next(out_iter)
             except StopIteration:
@@ -339,6 +338,7 @@ def train_ntom(train_loader_in, train_loader_out, model, criterion, num_classes,
         model.train()
 
         cat_input = torch.cat((in_input, out_input), 0)
+        cat_output = nn.parallel.data_parallel(model, cat_input,device_ids=[0,1,2] )
         cat_output = model(cat_input)
 
         in_output = cat_output[:in_len]
