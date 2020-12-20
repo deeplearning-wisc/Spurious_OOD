@@ -67,14 +67,6 @@ class NeuralLinear(object):
         self.train_x = torch.empty(0, 3, 32, 32)
         self.train_y = torch.empty(0, 1)
 
-    # def push_to_buffer(self, new_x, new_y):
-    #     if self.train_x is None:
-    #         self.train_x = new_x
-    #         self.train_y = new_y
-    #     else:
-    #         self.train_x = torch.cat((self.train_x, new_x), dim = 0)
-    #         self.train_y = torch.cat((self.train_y, new_y), dim = 0)
-
     def push_to_cyclic_buffer(self, epoch_buf_in, epoch_buf_out, epoch):
         BUF_SIZE = 4
         in_len = epoch_buf_in.shape[0]
@@ -100,7 +92,6 @@ class NeuralLinear(object):
                 batch_size=64, shuffle = False)
 
         self.model.eval()
-        # self.clsfier.eval()
         with torch.no_grad():
             for i, (images, labels) in enumerate(data_loader):
                 #images = images.cuda()
@@ -114,7 +105,7 @@ class NeuralLinear(object):
                     latent_z = torch.cat((latent_z , partial_latent_z), dim = 0)
             self.latent_z = latent_z
             assert len(self.latent_z) == len(self.train_x)
-
+    
     def train_blr(self, train_loader_in, train_loader_out, model, criterion, num_classes, optimizer, epoch, save_dir, log):
         """Train for one epoch on the training set"""
         batch_time = AverageMeter()
@@ -140,39 +131,40 @@ class NeuralLinear(object):
             out_input = out_set[0].cuda() # 128, 3, 32, 32
             out_target = out_set[1].cuda()  # 128
 
+            #ground_truth_logit = torch.full( (cat_input.shape[0], 1), -1 * self.args.conf, dtype = torch.float)
+            #ground_truth_logit[-len(out_input):] = self.args.conf
+
             model.train()
 
-            assert in_input.device == out_input.device and in_target.device == out_target.device
+            # assert in_input.device == out_input.device and in_target.device == out_target.device
 
-            cat_input = torch.cat((in_input, out_input), 0) # 192, 3, 32, 32
-            cat_output = model(cat_input)   # 192, 10
-            
-            ground_truth_logit = torch.full( (cat_output.shape[0], 1), -1 * self.args.conf, dtype = torch.float)
-            ground_truth_logit[-len(out_input):] = self.args.conf
-
-            # # 4 epoch scheme cyclic buffer
-            # BUF_SIZE = 4
-            # # fill in
-            # if epoch < BUF_SIZE:
-            #     self.push_to_buffer(cat_input.to("cpu"), ground_truth_logit.to("cpu"))
-            # # replace
-            # else:
-            #     replace_idx =  np.arange(self.cyclic_id * (out_len + in_len) + in_len, (self.cyclic_id +1) * (out_len + in_len))
-            #     self.cyclic_id = (self.cyclic_id + 1) % (BUF_SIZE * len(train_loader_in))
-            #     self.train_x[replace_idx] = cat_input[-out_len :].to("cpu")
-            #     self.train_y[replace_idx] = ground_truth_logit[-out_len :].to("cpu")
-                
-            in_output = cat_output[:in_len] 
+            # cat_input = torch.cat((in_input, out_input), 0) # 192, 3, 32, 32
+            # cat_output = model(cat_input)   # 192, 10
+            # in_output = cat_output[:in_len] 
 
             # train NN with softmax
+            # in_conf = F.softmax(in_output, dim=1)[:,-1].mean()
+            # in_confs.update(in_conf.data, in_len)
+            # in_loss = criterion(in_output, in_target.to(in_output.device))
+
+            # out_output = cat_output[in_len:] # 128, 10
+            # out_conf = F.softmax(out_output, dim=1)[:,-1].mean()
+            # out_confs.update(out_conf.data, out_len)
+            # out_loss = criterion(out_output, out_target.to(out_output.device)) 
+
+
+            # Try 
+            in_output = model( in_input )
+            out_output = model(out_input )
+            
             in_conf = F.softmax(in_output, dim=1)[:,-1].mean()
             in_confs.update(in_conf.data, in_len)
-            in_loss = criterion(in_output, in_target.to(in_output.device))
+            in_loss = criterion(in_output, in_target)
 
-            out_output = cat_output[in_len:] # 128, 10
             out_conf = F.softmax(out_output, dim=1)[:,-1].mean()
             out_confs.update(out_conf.data, out_len)
-            out_loss = criterion(out_output, out_target.to(out_output.device)) 
+            out_loss = criterion(out_output, out_target)
+           #
 
             in_losses.update(in_loss.data, in_len) 
             out_losses.update(out_loss.data, out_len)
@@ -204,25 +196,9 @@ class NeuralLinear(object):
                         in_confs=in_confs))
 
 
-        self.push_to_cyclic_buffer(epoch_buffer_in, epoch_buffer_out, epoch)
-
-        # if (epoch + 1) % self.args.save_data_epoch == 0:
-        #     print("Now: Saving selected OOD and ID in epoch: ", epoch)
-        #     for i, (in_set, out_set) in enumerate(zip(train_loader_in, train_loader_out)):
-        #         in_input, out_input = in_set[0], out_set[0]
-        #         all_ood_selected_per_epoch = out_input.cpu() if i == 0 else torch.cat( (all_ood_selected_per_epoch,out_input.cpu()), dim = 0 )
-        #         all_id_selected_per_epoch = in_input.cpu() if i == 0 else torch.cat( (all_id_selected_per_epoch,in_input.cpu()), dim = 0 )
-        #     selected_data = {
-        #             "ID":  all_id_selected_per_epoch,
-        #             "OOD": all_ood_selected_per_epoch
-        #         }
-        #     torch.save(selected_data, os.path.join(save_dir, "selected_data_at_epoch{}.data".format(epoch)) )
-        # log to TensorBoard
-        if self.args.tensorboard:
-            log_value('nat_train_acc', nat_top1.avg, epoch)
-
+        #self.push_to_cyclic_buffer(epoch_buffer_in, epoch_buffer_out, epoch)
     
-    def sample_BDQN(self, parallelize = False):
+    def sample_BDQN(self):
         # Sample sigma^2, and beta conditional on sigma^2
         with torch.no_grad():
             d = self.mu_w[0].shape[0]  #hidden_dim
