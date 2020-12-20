@@ -126,7 +126,7 @@ class NeuralLinear(object):
             out_len = len(out_set[0])
             epoch_buffer_in = torch.cat((epoch_buffer_in, in_set[0]), 0)
             epoch_buffer_out = torch.cat((epoch_buffer_out, out_set[0]), 0)
-            in_input = in_set[0].cuda() # 64, 3, 32, 32
+            in_input = in_set[0].cuda()# 64, 3, 32, 32
             in_target = in_set[1].cuda() # 64
             out_input = out_set[0].cuda() # 128, 3, 32, 32
             out_target = out_set[1].cuda()  # 128
@@ -138,19 +138,37 @@ class NeuralLinear(object):
 
             # assert in_input.device == out_input.device and in_target.device == out_target.device
 
-            cat_input = torch.cat((in_input, out_input), 0) # 192, 3, 32, 32
-            cat_output = model(cat_input)   
-            in_output = cat_output[:in_len] 
+            # cat_input = torch.cat((in_input, out_input), 0) # 192, 3, 32, 32
+            # cat_output = model(cat_input)   # 192, 10
+            # in_output = cat_output[:in_len] 
 
-            train NN with softmax
+            # train NN with softmax
+            # in_conf = F.softmax(in_output, dim=1)[:,-1].mean()
+            # in_confs.update(in_conf.data, in_len)
+            # in_loss = criterion(in_output, in_target.to(in_output.device))
+
+            # out_output = cat_output[in_len:] # 128, 10
+            # out_conf = F.softmax(out_output, dim=1)[:,-1].mean()
+            # out_confs.update(out_conf.data, out_len)
+            # out_loss = criterion(out_output, out_target.to(out_output.device)) 
+
+
+            # Try 
+            in_output = model( in_input )
+            out_output = model(out_input )
+            cat_input = torch.cat((in_input, out_input), 0)
+            cat_output = model(cat_input) 
+            in_output_2 = cat_output[:in_len] 
+            out_output_2 = cat_output[in_len:]
+            
             in_conf = F.softmax(in_output, dim=1)[:,-1].mean()
             in_confs.update(in_conf.data, in_len)
-            in_loss = criterion(in_output, in_target.to(in_output.device))
+            in_loss = criterion(in_output, in_target)
 
-            out_output = cat_output[in_len:] # 128, 10
             out_conf = F.softmax(out_output, dim=1)[:,-1].mean()
             out_confs.update(out_conf.data, out_len)
-            out_loss = criterion(out_output, out_target.to(out_output.device)) 
+            out_loss = criterion(out_output, out_target)
+           #
 
             in_losses.update(in_loss.data, in_len) 
             out_losses.update(out_loss.data, out_len)
