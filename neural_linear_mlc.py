@@ -90,7 +90,7 @@ class NeuralLinear(object):
         print('begin updating representation')
         data_loader = torch.utils.data.DataLoader(
                 SimpleDataset(self.train_x, self.train_y),
-                batch_size=64, shuffle=True)
+                batch_size=64, shuffle=False)
 
         self.model.eval()
         self.clsfier.eval()
@@ -125,32 +125,50 @@ class NeuralLinear(object):
         for i, (in_set, out_set) in enumerate(zip(train_loader_in, train_loader_out)):
             in_len = len(in_set[0])
             out_len = len(out_set[0])
+            # if in_len == 21:
+            #      in_len = in_len - 1
+            #      out_len = out_len - 1
+            #      in_set = in_set[:-1]
+            #      out_set = out_set[:-1]
             epoch_buffer_in = torch.cat((epoch_buffer_in, in_set[0]), 0)
             epoch_buffer_out = torch.cat((epoch_buffer_out, out_set[0]), 0)
             in_input = in_set[0].cuda() # 64, 3, 244, 244
             in_target = torch.cat( (in_set[1], torch.zeros(in_len, 1)), dim = 1).cuda().float()
-
             out_input = out_set[0].to(in_input.device) # 128, 3, 244, 244
             out_target = torch.nn.functional.one_hot(out_set[1], num_classes + 1).to(in_target.device)
 
-            model.train()
-            clsfier.train()
-
-            cat_input = torch.cat((in_input, out_input), 0) # 192, 3, 244, 244
-            cat_output = clsfier(model(cat_input))  # 192, 20
-            # cat_target = torch.cat((in_target, out_target), 0)
-
-            ground_truth_logit = torch.full( (cat_output.shape[0], 1), -1 * self.args.conf, dtype = torch.float)
+            # cat_input = torch.cat((in_input, out_input), 0) # 192, 3, 244, 244
+            #modified cat_input
+            NUM_DEVICE = 4
+            id_idx = np.arange(in_len//NUM_DEVICE)
+            ood_mask = np.ones(in_len + out_len, dtype=bool)
+            for j in range(1, NUM_DEVICE ):
+                id_idx = np.hstack([id_idx, np.arange((in_len + out_len)//NUM_DEVICE * j, 
+                                    (in_len + out_len)//NUM_DEVICE  * j + in_len//NUM_DEVICE )])
+            ood_mask[id_idx] = False 
+            ood_idx = np.arange(in_len + out_len)[ood_mask]
+            cat_input = torch.empty(in_len + out_len, 3, 256, 256).cuda()
+            cat_input[id_idx] = in_input
+            cat_input[ood_idx] = out_input
+            #
+            ground_truth_logit = torch.full( (cat_input.shape[0], 1), -1 * self.args.conf, dtype = torch.float)
             ground_truth_logit[-len(out_input):] = self.args.conf
 
-            in_output = cat_output[:in_len] #64, 10
-
+            model.train()
+            clsfier.train()       
+            # cat_output = clsfier(model(cat_input))  # 192, 20
+            # devices = list(range(torch.cuda.device_count()))
+            temp_output = nn.parallel.data_parallel(model, cat_input, device_ids=list(range(NUM_DEVICE)))
+            cat_output = nn.parallel.data_parallel(clsfier, temp_output, device_ids=list(range(NUM_DEVICE)))
+            in_output = cat_output[id_idx] # torch.Size([64, 21])
+            # in_output = cat_output[:in_len]
             # # train NN with sigmoid 
             in_conf = torch.sigmoid(in_output)[:,-1].mean()
             in_confs.update(in_conf.data, in_len)
             in_loss = criterion(in_output, in_target.to(in_output.device))
 
-            out_output = cat_output[in_len:] # 128, 20
+            # out_output = cat_output[in_len:] # 128, 20
+            out_output = cat_output[ood_idx] # torch.Size([64, 21])
             out_conf = torch.sigmoid(out_output)[:,-1].mean()
             out_confs.update(out_conf.data, out_len)
             # new_out_target = torch.nn.functional.one_hot(out_target, num_classes + 1).float()
