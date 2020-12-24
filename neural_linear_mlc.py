@@ -8,7 +8,7 @@ import time
 import pickle
 import json
 
-
+from sklearn import metrics
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -38,13 +38,14 @@ class NeuralLinear(object):
     '''
     the neural linear model
     '''
-    def __init__(self, args, model, clsfier, repr_dim, output_dim):
+    def __init__(self, args, model, clsfier, repr_dim, output_dim, num_classes):
 
         self.args = args
         self.model = model
         self.clsfier = clsfier
         self.output_dim = output_dim
         self.repr_dim = repr_dim
+        self.num_classes = num_classes
 
         self.a = torch.tensor([args.a0 for _ in range(self.output_dim)]).cuda()
         self.b = torch.tensor([args.b0 for _ in range(self.output_dim)]).cuda()
@@ -65,7 +66,7 @@ class NeuralLinear(object):
 
         self.beta_s = None
         self.latent_z = None
-        self.train_x = torch.empty(0, 3, 256, 256)
+        self.train_x = torch.empty(0, 3, 224, 224)
         self.train_y = torch.empty(0, 1)
 
     def push_to_cyclic_buffer(self, epoch_buf_in, epoch_buf_out, epoch):
@@ -107,7 +108,7 @@ class NeuralLinear(object):
             self.latent_z = latent_z
             assert len(self.latent_z) == len(self.train_x)
         
-    def train_blr(self, train_loader_in, train_loader_out, model, clsfier, criterion, num_classes, optimizer, epoch, save_dir, log):
+    def train_blr(self, train_loader_in, train_loader_out, criterion_in, criterion_out, optimizer, epoch, save_dir, log):
         """Train for one epoch on the training set"""
         batch_time = AverageMeter()
 
@@ -120,22 +121,19 @@ class NeuralLinear(object):
 
         end = time.time()
 
-        epoch_buffer_in = torch.empty(0, 3, 256, 256)
-        epoch_buffer_out = torch.empty(0, 3, 256, 256)
+        epoch_buffer_in = torch.empty(0, 3, 224, 224)
+        epoch_buffer_out = torch.empty(0, 3, 224, 224)
+        
         for i, (in_set, out_set) in enumerate(zip(train_loader_in, train_loader_out)):
             in_len = len(in_set[0])
             out_len = len(out_set[0])
-            # if in_len == 21:
-            #      in_len = in_len - 1
-            #      out_len = out_len - 1
-            #      in_set = in_set[:-1]
-            #      out_set = out_set[:-1]
             epoch_buffer_in = torch.cat((epoch_buffer_in, in_set[0]), 0)
             epoch_buffer_out = torch.cat((epoch_buffer_out, out_set[0]), 0)
+
             in_input = in_set[0].cuda() # 64, 3, 244, 244
             in_target = torch.cat( (in_set[1], torch.zeros(in_len, 1)), dim = 1).cuda().float()
             out_input = out_set[0].to(in_input.device) # 128, 3, 244, 244
-            out_target = torch.nn.functional.one_hot(out_set[1], num_classes + 1).to(in_target.device)
+            out_target = torch.nn.functional.one_hot(out_set[1], self.num_classes + 1).to(in_target.device)
 
             # cat_input = torch.cat((in_input, out_input), 0) # 192, 3, 244, 244
             #modified cat_input
@@ -147,32 +145,28 @@ class NeuralLinear(object):
                                     (in_len + out_len)//NUM_DEVICE  * j + in_len//NUM_DEVICE )])
             ood_mask[id_idx] = False 
             ood_idx = np.arange(in_len + out_len)[ood_mask]
-            cat_input = torch.empty(in_len + out_len, 3, 256, 256).cuda()
+            cat_input = torch.empty(in_len + out_len, 3, 224, 224).cuda()
             cat_input[id_idx] = in_input
             cat_input[ood_idx] = out_input
-            #
-            ground_truth_logit = torch.full( (cat_input.shape[0], 1), -1 * self.args.conf, dtype = torch.float)
-            ground_truth_logit[-len(out_input):] = self.args.conf
 
-            model.train()
-            clsfier.train()       
+            self.model.train()
+            self.clsfier.train()       
             # cat_output = clsfier(model(cat_input))  # 192, 20
             # devices = list(range(torch.cuda.device_count()))
-            temp_output = nn.parallel.data_parallel(model, cat_input, device_ids=list(range(NUM_DEVICE)))
-            cat_output = nn.parallel.data_parallel(clsfier, temp_output, device_ids=list(range(NUM_DEVICE)))
+            temp_output = nn.parallel.data_parallel(self.model, cat_input, device_ids=list(range(NUM_DEVICE)))
+            cat_output = nn.parallel.data_parallel(self.clsfier, temp_output, device_ids=list(range(NUM_DEVICE)))
             in_output = cat_output[id_idx] # torch.Size([64, 21])
             # in_output = cat_output[:in_len]
             # # train NN with sigmoid 
             in_conf = torch.sigmoid(in_output)[:,-1].mean()
             in_confs.update(in_conf.data, in_len)
-            in_loss = criterion(in_output, in_target.to(in_output.device))
+            in_loss = criterion_in(in_output, in_target.to(in_output.device))
 
             # out_output = cat_output[in_len:] # 128, 20
             out_output = cat_output[ood_idx] # torch.Size([64, 21])
             out_conf = torch.sigmoid(out_output)[:,-1].mean()
             out_confs.update(out_conf.data, out_len)
-            # new_out_target = torch.nn.functional.one_hot(out_target, num_classes + 1).float()
-            out_loss = criterion(out_output, out_target.to(out_output.device).float()) 
+            out_loss = criterion_out(out_output, out_target.to(out_output.device).float()) 
 
             in_losses.update(in_loss.data, in_len) 
             out_losses.update(out_loss.data, out_len)
@@ -187,7 +181,7 @@ class NeuralLinear(object):
             batch_time.update(time.time() - end)
             end = time.time()
             if i % self.args.print_freq == 0:
-                log.debug('Epoch: [{0}][{1}/{2}]\t'
+                log.debug('Epoch: [{0}] Batch#[{1}/{2}]\t'
                     'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                     'In Loss {in_loss.val:.4f} ({in_loss.avg:.4f})\t'
                     'Out Loss {out_loss.val:.4f} ({out_loss.avg:.4f})\t'
@@ -200,6 +194,7 @@ class NeuralLinear(object):
                         in_confs=in_confs))
         
         self.push_to_cyclic_buffer(epoch_buffer_in, epoch_buffer_out, epoch)
+
         # log to TensorBoard
         # if self.args.tensorboard:
         #     log_value('nat_train_acc', nat_top1.avg, epoch)
@@ -246,8 +241,8 @@ class NeuralLinear(object):
             #A = torch.as_tensor(s/self.sigma_n + 1/self.sigma*self.eye)
             #B = torch.as_tensor(np.dot(z.T, y))/self.sigma_n
             A_eig_val, A_eig_vec = torch.symeig(A, eigenvectors=True)
-            log.debug("Before inverse. eigenvalue (pd): {}".format(A_eig_val[:20]))
-            log.debug("Before inverse. eigenvalue (pd): {}".format(A_eig_val[-20:]))
+            log.debug("Before inverse. eigenvalue (ASC): {}".format(A_eig_val[:20]))
+            log.debug("Before inverse. eigenvalue (DES): {}".format(A_eig_val[-20:]))
             A = A.detach().cpu().numpy()
             # inv = torch.inverse(A)
             inv = np.linalg.inv(A)
@@ -255,13 +250,68 @@ class NeuralLinear(object):
             self.mu_w[0] = torch.matmul(inv, B).squeeze()
             temp_cov = self.sigma*inv        
             eig_val, eig_vec = torch.symeig(temp_cov, eigenvectors=True)
-            log.debug("After inverse. eigenvalue (pd): {}".format(eig_val[:20]) )
-            log.debug("After inverse. eigenvalue (pd): {}".format(eig_val[-20:]) )
+            log.debug("After inverse. eigenvalue (ASC): {}".format(eig_val[:20]) )
+            log.debug("After inverse. eigenvalue (DES): {}".format(eig_val[-20:]) )
             if torch.any(eig_val < 0):
+                log.debug("###### WARNING! NEGATIVE EIGENVALUE ######" )
                 self.cov_w[0] = torch.matmul(torch.matmul(eig_vec, torch.diag(torch.abs(eig_val))), torch.t(eig_vec))
             else:
                 self.cov_w[0] = temp_cov
-            print('singularity check: matrix not singular.')
+            # print('singularity check: matrix not singular.')
+
+    def validate(self, val_loader, epoch, log):
+        in_cls_confs = AverageMeter()
+        in_bys_confs = AverageMeter()
+        self.model.eval()
+        self.clsfier.eval()
+        init = True
+        log.debug("######## Start validation ########")
+        # gts = {i:[] for i in range(0, num_classes)}
+        # preds = {i:[] for i in range(0, num_classes)}
+        with torch.no_grad():
+            for i, (images, labels) in enumerate(val_loader):
+                images = images.cuda()
+                # extra_col = torch.zeros(len(labels), 1)
+                # labels = torch.cat( (labels, extra_col), dim = 1).cuda().float()
+                labels = labels.cuda().float()
+                outputs = self.model(images)
+                latent_z = self.clsfier.intermediate_forward(outputs) #DEBUG
+                in_bys_conf = torch.sigmoid(torch.mm(self.beta_s, latent_z.T).T).mean()  #DEBUG
+                outputs = self.clsfier(outputs)
+                outputs = torch.sigmoid(outputs)
+                pred = outputs[:, :-1].squeeze().data.cpu().numpy()
+                in_cls_conf = outputs[:, -1].mean() # 64       #DEBUG        
+                in_cls_confs.update(in_cls_conf.data, len(labels))  #DEBUG
+                in_bys_confs.update(in_bys_conf.data, len(labels))  #DEBUG
+                ground_truth = labels.squeeze().data.cpu().numpy()
+                if init:
+                    all_ground_truth = ground_truth 
+                    all_pred = pred
+                    init = False
+                else:
+                    all_ground_truth = np.vstack((all_ground_truth, ground_truth) )
+                    all_pred = np.vstack((all_pred, pred))
+                # for label in range(0, num_classes):
+                #     gts[label].append(ground_truth[label])
+                #     preds[label].append(pred[label])
+                #DEBUG
+                if i % self.args.print_freq == 0:
+                    log.debug('Epoch: [{0}] Batch#[{1}/{2}]\t'
+                        'In Classifer Conf {in_cls_confs.val:.4f} ({in_cls_confs.avg:.4f})\t'
+                        'In Bayesian Conf {in_bys_confs.val:.4f} ({in_bys_confs.avg:.4f})'.format(
+                            epoch, i, len(val_loader), in_bys_confs=in_bys_confs, in_cls_confs=in_cls_confs))
+
+        FinalMAPs = []
+        for i in range(0, self.num_classes):
+            precision, recall, thresholds = metrics.precision_recall_curve(all_ground_truth[i], all_pred[i])
+            FinalMAPs.append(metrics.auc(recall, precision))
+        print("final map: ", np.mean(FinalMAPs))
+
+        # # log to TensorBoard
+        # if self.args.tensorboard:
+        #     log_value('mAP', np.mean(FinalMAPs) epoch)
+
+        return np.mean(FinalMAPs)
 
 class SimpleDataset(torch.utils.data.Dataset):
   def __init__(self, images, labels):
@@ -277,8 +327,6 @@ class SimpleDataset(torch.utils.data.Dataset):
         y = self.labels[index]
 
         return X, y
-    
-
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -297,17 +345,17 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-def accuracy(output, target, topk=(1,)):
-    """Computes the precision@k for the specified values of k"""
-    maxk = max(topk)
-    batch_size = target.size(0)
+# def accuracy(output, target, topk=(1,)):
+#     """Computes the precision@k for the specified values of k"""
+#     maxk = max(topk)
+#     batch_size = target.size(0)
 
-    _, pred = output.topk(maxk, 1, True, True)
-    pred = pred.t().to(target.device)
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
+#     _, pred = output.topk(maxk, 1, True, True)
+#     pred = pred.t().to(target.device)
+#     correct = pred.eq(target.view(1, -1).expand_as(pred))
 
-    res = []
-    for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0)
-        res.append(correct_k.mul_(100.0 / batch_size))
-    return res
+#     res = []
+#     for k in topk:
+#         correct_k = correct[:k].view(-1).float().sum(0)
+#         res.append(correct_k.mul_(100.0 / batch_size))
+#     return res

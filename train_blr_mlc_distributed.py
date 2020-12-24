@@ -1,13 +1,15 @@
 import argparse
 import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
 import sys
-
 import shutil
 import time
-
+import random
+import json
+import logging
+# os.environ["CUDA_VISIBLE_DEVICES"] = "3"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.parallel
@@ -18,9 +20,10 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision
-import numpy as np
-import utils.svhn_loader as svhn
 
+
+import utils.svhn_loader as svhn
+from models.fine_tuning_layer import clssimp as clssimp
 import models.densenet as dn
 import models.wideresnet as wn
 import models.resnet as rn
@@ -31,19 +34,14 @@ from utils import LinfPGDAttack, TinyImages
 from tensorboard_logger import configure, log_value
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-import json
-import logging
-
 from torch.utils.data import Sampler
 from utils.pascal_voc_loader import pascalVOCSet
 from utils import cocoloader
 from utils.transform import ReLabel, ToLabel, ToSP, Scale
 from utils import ImageNet
-from sklearn import metrics
 from neural_linear_mlc import SimpleDataset
 
 parser = argparse.ArgumentParser(description='OOD training for multi-label classification')
-# parser.add_argument('--gpu', default=3, type=int, help='the preferred gpu to use')
 
 parser.add_argument('--in-dataset', default="pascal", type=str, help='in-distribution dataset e.g. pascal')
 parser.add_argument('--auxiliary-dataset', default='imagenet', 
@@ -56,11 +54,9 @@ parser.add_argument('--save-data-epoch', default= 120, type=int,
                     help='save the sampled ood every save_data_epoch') # freq; save model state_dict()
 parser.add_argument('--print-freq', '-p', default=10, type=int,
                     help='print frequency (default: 10)') # print every print-freq batches during training
-
 # ID train & val batch size and OOD train batch size 
 parser.add_argument('-b', '--batch-size', default= 64, type=int,
                     help='mini-batch size (default: 64) used for training id and ood')
-
 # training schedule
 parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
@@ -71,13 +67,11 @@ parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float,
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=0.0001, type=float,
                     help='weight decay (default: 0.0001)')
-
 # densenet
 parser.add_argument('--layers', default= 100, type=int,
                     help='total number of layers (default: 100) for DenseNet')
 parser.add_argument('--growth', default= 12, type=int,
                     help='number of new channels per layer (default: 12)')
-
 ## network spec
 parser.add_argument('--droprate', default=0.0, type=float,
                     help='dropout probability (default: 0.0)')
@@ -88,8 +82,6 @@ parser.add_argument('--reduce', default=0.5, type=float,
 parser.add_argument('--no-bottleneck', dest='bottleneck', action='store_false',
                     help='To not use bottleneck block')
 parser.add_argument('--beta', default=1.0, type=float, help='beta for out_loss')
-
-
 # ood sampling and mining
 parser.add_argument('--ood-batch-size', default= 100, type=int,
                     help='mini-batch size (default: 400) used for ood mining')
@@ -97,23 +89,27 @@ parser.add_argument('--pool-size', default= 400, type=int,
                     help='pool size')
 parser.add_argument('--ood_factor', type=float, default= 1,
                  help='ood_dataset_size = len(train_loader.dataset) * ood_factor default = 2.0')
-
 #posterior sampling
 parser.add_argument('--a0', type=float, default=6.0, help='a0')
 parser.add_argument('--b0', type=float, default=6.0, help='b0')
 parser.add_argument('--lambda_prior', type=float, default=0.25, help='lambda_prior')
 parser.add_argument('--sigma', type=float, default=10, help='control var for weights')
-parser.add_argument('--sigma_n', type=float, default=0.1, help='control var for noise')
+parser.add_argument('--sigma_n', type=float, default=0.5, help='control var for noise')
 parser.add_argument('--conf', type=float, default=4.6, help='control ground truth for bayesian linear regression.3.9--0.98; 4.6 --0.99')
 # saving, naming and logging
 parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
-parser.add_argument('--name', default = "debug_test ", type=str,
+parser.add_argument('--name', default = "debug_2_criterion", type=str,
                     help='name of experiment')
 parser.add_argument('--tensorboard',
                     help='Log progress to TensorBoard', action='store_true')
 parser.add_argument('--log_name',
                     help='Name of the Log File', type = str, default = "info.log")
+#Device options
+parser.add_argument('--gpu-ids', default='0,1,2,3', type=str,
+                    help='id(s) for CUDA_VISIBLE_DEVICES')
+# Miscs
+parser.add_argument('--manualSeed', type=int, help='manual seed')
 
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(augment=True)
@@ -130,10 +126,18 @@ fw = open(save_state_file, 'w')
 print(state, file=fw)
 fw.close()
 
+# Use CUDA
+os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_ids
+use_cuda = torch.cuda.is_available()
 devices = list(range(torch.cuda.device_count()))
 
-torch.manual_seed(1)
-np.random.seed(1)
+# Random seed
+if args.manualSeed is None:
+    args.manualSeed = random.randint(1, 10000)
+torch.manual_seed(args.manualSeed)
+np.random.seed(args.manualSeed)
+if use_cuda:
+    torch.cuda.manual_seed_all(args.manualSeed)
 
 def main():
     if args.tensorboard: configure("runs/%s"%(args.name))
@@ -156,26 +160,22 @@ def main():
             ])
         train_set = pascalVOCSet("./datasets/pascal/", split="voc12-train", img_transform = transforms.Compose([
                                             transforms.RandomHorizontalFlip(),
-                                            transforms.RandomResizedCrop((256),scale=(0.5, 2.0)),
+                                            # transforms.RandomResizedCrop((256),scale=(0.5, 2.0)),
+                                            transforms.RandomResizedCrop(224),
                                             transforms.ToTensor(),
                                             normalize]), 
                                  label_transform = label_transform)
         val_set = pascalVOCSet('./datasets/pascal/', split="voc12-val",
                                    img_transform=transforms.Compose([
                                     transforms.Resize((256, 256)),
+                                    transforms.CenterCrop(224),
                                     transforms.ToTensor(),
                                     normalize]),
                                    label_transform=label_transform)
-        test_set = pascalVOCSet('./datasets/pascal/', split="voc12-test",
-                                    img_transform=transforms.Compose([
-                                    transforms.Resize((256, 256)),
-                                    transforms.ToTensor(),
-                                    normalize]), label_transform = None)
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size, num_workers=1, shuffle=True, pin_memory=True)
         # train_loaders = [torch.utils.data.DataLoader(sub_dataset, batch_size=args.batch_size, shuffle=True) 
         #                         for sub_dataset in torch.utils.data.random_split( train_set, [2858, 2859])]
         val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch_size, num_workers=1, shuffle=False, pin_memory=True)
-        # test_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size, num_workers=1, shuffle=False, pin_memory=True)
 
         # lr_schedule=[50, 75, 90]
         num_classes = 20
@@ -197,7 +197,8 @@ def main():
     ood_root = "/nobackup-slow/dataset/ILSVRC-2012/train"
     ood_data = datasets.ImageFolder(ood_root, transform=transforms.Compose([
         transforms.RandomHorizontalFlip(),
-        transforms.Resize((256, 256)),
+        # transforms.Resize((256, 256)),
+        transforms.Resize((224, 224)),
         transforms.ToTensor(),
         normalize,
     ]))
@@ -240,12 +241,18 @@ def main():
 
     model = model.cuda()
     clsfier = clsfier.cuda()
-    bayes_nn = NeuralLinear(args, model, clsfier, repr_dim, output_dim)
+    bayes_nn = NeuralLinear(args, model, clsfier, repr_dim, output_dim, num_classes)
 
     cudnn.benchmark = True
 
     # define loss function (criterion) and pptimizer
-    criterion = nn.BCEWithLogitsLoss().cuda() # sigmoid 
+    # class_weights = torch.tensor([33.85365854, 39.68327402, 27.72361809, 42.3030303 , 27.65162907,
+    #                              51.20091324, 17.40901771, 20.17037037, 16.42682927, 72.75483871,
+    #                              34.94968553, 16.97484277, 47.03361345, 40.72262774,  4.33706816,
+    #                              38.55709343, 65.85380117, 30.84401114, 40.57090909, 37.23411371, 1.0])
+    class_weights = torch.tensor( [1]*20 + [100])
+    criterion_in = nn.BCEWithLogitsLoss(pos_weight = class_weights).cuda() # sigmoid 
+    criterion_out = nn.BCEWithLogitsLoss().cuda() # sigmoid 
 
     optimizer = torch.optim.Adam([{'params': model.parameters(),'lr':args.lr/10},
                                 {'params': clsfier.parameters()}], lr=args.lr)
@@ -297,18 +304,19 @@ def main():
         selected_ood_loader = select_ood(ood_loader, model, clsfier, bayes_nn, args.batch_size * 1, 
                                             num_classes, pool_size, ood_dataset_size, log)
         torch.cuda.empty_cache()                                    
-        bayes_nn.train_blr(train_loader, selected_ood_loader, model, clsfier, criterion, num_classes, optimizer, epoch, directory, log)
+        bayes_nn.train_blr(train_loader, selected_ood_loader, criterion_in, criterion_out, optimizer, epoch, directory, log)
         bayes_nn.update_representation()
         bayes_nn.update_bays_reg_BDQN(log)
         bayes_nn.sample_BDQN()
     
         # evaluate on validation set
-        mAP = validate(args, model, clsfier, val_loader, num_classes, epoch)
+        mAP = bayes_nn.validate(val_loader, epoch, log)
         if mAP > best_map:
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict_model': model.state_dict(),
                 'state_dict_clsfier': clsfier.state_dict(),
+                'beta_s': bayes_nn.beta_s,
             }, epoch + 1)
             best_map = mAP
             mAPs.append(mAP)
@@ -317,11 +325,12 @@ def main():
             # test_mAP = validate(args, model, clsfier, test_loader, num_classes, True)
             # print("Epoch [%d/%d][test set] test_mAP: %.4f" % (epoch + 1, args.epochs, test_mAP))
         else:
-            if epoch % 4 == 0:
+            if epoch % 5 == 0:
                 save_checkpoint({
                     'epoch': epoch + 1,
                     'state_dict_model': model.state_dict(),
                     'state_dict_clsfier': clsfier.state_dict(),
+                    'beta_s': bayes_nn.beta_s,
                 }, epoch + 1)
             best_map = mAP
             mAPs.append(mAP)
@@ -336,47 +345,6 @@ def main():
 
     torch.save(torch.tensor(mAPs), os.path.join(directory, "all_mAPs.data") )     
 
-
-def validate(args, model, clsfier, val_loader, num_classes, epoch):
-    model.eval()
-    clsfier.eval()
-    init = True
-    # gts = {i:[] for i in range(0, num_classes)}
-    # preds = {i:[] for i in range(0, num_classes)}
-    with torch.no_grad():
-        for i, (images, labels) in enumerate(val_loader):
-            images = images.cuda()
-            # extra_col = torch.zeros(len(labels), 1)
-            # labels = torch.cat( (labels, extra_col), dim = 1).cuda().float()
-            labels = labels.cuda().float()
-            outputs = model(images)
-            outputs = clsfier(outputs)
-            outputs = torch.sigmoid(outputs)
-            pred = outputs[:, :-1].squeeze().data.cpu().numpy()
-            ground_truth = labels.squeeze().data.cpu().numpy()
-            if init:
-                 all_ground_truth = ground_truth 
-                 all_pred = pred
-                 init = False
-            else:
-                all_ground_truth = np.vstack((all_ground_truth, ground_truth) )
-                all_pred = np.vstack((all_pred, pred))
-            # for label in range(0, num_classes):
-            #     gts[label].append(ground_truth[label])
-            #     preds[label].append(pred[label])
-
-    FinalMAPs = []
-    for i in range(0, num_classes):
-        precision, recall, thresholds = metrics.precision_recall_curve(all_ground_truth[i], all_pred[i])
-        FinalMAPs.append(metrics.auc(recall, precision))
-    # print(FinalMAPs)
-    print(np.mean(FinalMAPs))
-    
-    # # log to TensorBoard
-    # if self.args.tensorboard:
-    #     log_value('mAP', np.mean(FinalMAPs) epoch)
-
-    return np.mean(FinalMAPs)
 
 def select_ood(ood_loader, model, clsfier, bayes_model, batch_size, num_classes, pool_size, ood_dataset_size, log):
 
@@ -486,33 +454,6 @@ def save_checkpoint(state, epoch, name = None):
     torch.save(state, filename)
 
 
-class clssimp(nn.Module):
-    def __init__(self, ch=2880, num_classes=20):
-
-        super(clssimp, self).__init__()
-        self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
-        self.way1 = nn.Sequential(
-            nn.Linear(ch, 1024, bias=True),
-            nn.GroupNorm(num_channels=1024, num_groups=32),
-            # nn.BatchNorm1d(1024),
-            nn.ReLU(inplace=True),
-        )
-
-        self.cls= nn.Linear(1024, num_classes,bias=True)
-
-    def forward(self, x):
-        # bp()
-        x = self.pool(x)
-        x = x.reshape(x.size(0), -1)
-        x = self.way1(x)
-        logits = self.cls(x)
-        return logits
-
-    def intermediate_forward(self, x):
-        x = self.pool(x)
-        x = x.reshape(x.size(0), -1)
-        x = self.way1(x)
-        return x
 
 
 if __name__ == '__main__':
