@@ -207,7 +207,7 @@ class NeuralLinear(object):
         # if self.args.tensorboard:
         #     log_value('nat_train_acc', nat_top1.avg, epoch)
 
-    def train_blr_energy(self, train_loader_in, train_loader_out, criterion, optimizer, epoch, save_dir, log):
+    def train_blr_energy(self, train_loader_in, train_loader_out, criterion, optimizer, epoch, save_dir, log, bayes = False):
         """Train for one epoch on the training set"""
         batch_time = AverageMeter()
 
@@ -219,72 +219,59 @@ class NeuralLinear(object):
         log.debug("######## Start training NN at epoch {} ########".format(epoch) )
 
         end = time.time()
-
-        # epoch_buffer_in = torch.empty(0, 3, 224, 224)
-        # epoch_buffer_out = torch.empty(0, 3, 224, 224)
+        if bayes:
+            epoch_buffer_in = torch.empty(0, 3, 224, 224)
+            epoch_buffer_out = torch.empty(0, 3, 224, 224)
 
         for i, (in_set, out_set) in enumerate(zip(train_loader_in, train_loader_out)):
             in_len = len(in_set[0])
             out_len = len(out_set[0])
-            # epoch_buffer_in = torch.cat((epoch_buffer_in, in_set[0]), 0)
-            # epoch_buffer_out = torch.cat((epoch_buffer_out, out_set[0]), 0)
-
+            if bayes:
+                epoch_buffer_in = torch.cat((epoch_buffer_in, in_set[0]), 0)
+                epoch_buffer_out = torch.cat((epoch_buffer_out, out_set[0]), 0)
             in_input = in_set[0].cuda() # 64, 3, 244, 244
             in_target = in_set[1].cuda().float()
             out_input = out_set[0].to(in_input.device) # 128, 3, 244, 244
 
-            # cat_input = torch.cat((in_input, out_input), 0) # 192, 3, 244, 244
-            #modified cat_input
-            NUM_DEVICE = 4
-            id_idx = np.arange(in_len//NUM_DEVICE)
-            ood_mask = np.ones(in_len + out_len, dtype=bool)
-            for j in range(1, NUM_DEVICE ):
-                id_idx = np.hstack([id_idx, np.arange((in_len + out_len)//NUM_DEVICE * j, 
-                                    (in_len + out_len)//NUM_DEVICE  * j + in_len//NUM_DEVICE )])
-            ood_mask[id_idx] = False 
-            ood_idx = np.arange(in_len + out_len)[ood_mask]
-            cat_input = torch.empty(in_len + out_len, 3, 224, 224).cuda()
-            cat_input[id_idx] = in_input
-            cat_input[ood_idx] = out_input
+            # V1: concatenate then feed forward 
+            # cat_input = torch.cat((in_input, out_input), 0)
+            # NUM_DEVICE = 4
+            # self.model.train()
+            # self.clsfier.train()       
+            # cat_output = nn.parallel.data_parallel(self.model, cat_input, device_ids=list(range(NUM_DEVICE)))
+            # cat_output = nn.parallel.data_parallel(self.clsfier, cat_output, device_ids=list(range(NUM_DEVICE)))
+            # cat_energy = -1 * torch.sum(torch.log(1+torch.exp(cat_output)), dim = 1)
+            # in_output = cat_output[:in_len]
+            # out_output = cat_output[in_len:]
+            # in_energy = cat_energy[:in_len]
+            # out_energy = cat_energy[in_len:]
 
+            # V2: twice feed forward 
+            NUM_DEVICE = 4
             self.model.train()
             self.clsfier.train()       
-            # cat_output = clsfier(model(cat_input))  # 192, 20
-            # devices = list(range(torch.cuda.device_count()))
-            temp_output = nn.parallel.data_parallel(self.model, cat_input, device_ids=list(range(NUM_DEVICE)))
-            cat_output = nn.parallel.data_parallel(self.clsfier, temp_output, device_ids=list(range(NUM_DEVICE)))
-            cat_energy = -1 * torch.sum(torch.log(1+torch.exp(cat_output)), dim = 1)
-            in_output = cat_output[id_idx] # torch.Size([64, 20])
-            in_energy = cat_energy[id_idx]
-            # print("in energy max: ", in_energy.max())
-            # print("in energy min: ", in_energy.min())
-            # print("in energy mean: ", in_energy.mean())
-            # # train NN with sigmoid 
-            # in_conf = torch.sigmoid(in_output).mean()
-            #in_confs.update(in_conf.data, in_len)
-            in_loss = criterion(in_output, in_target.to(in_output.device))   #in_target 64 * 21
+            in_output = nn.parallel.data_parallel(self.model, in_input, device_ids=list(range(NUM_DEVICE)))
+            in_output = nn.parallel.data_parallel(self.clsfier, in_output, device_ids=list(range(NUM_DEVICE)))
+            in_energy = -1 * torch.sum(torch.log(1+torch.exp(in_output)), dim = 1)
+
+            out_output = nn.parallel.data_parallel(self.model, out_input, device_ids=list(range(NUM_DEVICE)))
+            out_output = nn.parallel.data_parallel(self.clsfier, out_output, device_ids=list(range(NUM_DEVICE)))
+            out_energy = -1 * torch.sum(torch.log(1+torch.exp(out_output)), dim = 1)
+
+            # calculate loss
+            in_loss = criterion(in_output, in_target.to(in_output.device)) 
             in_energy_loss = torch.pow(F.relu(in_energy-self.args.m_in), 2).mean() 
-
-            # out_output = cat_output[in_len:] # 128, 20
-            out_output = cat_output[ood_idx] # torch.Size([64, 20])
-            out_energy = cat_energy[ood_idx]
-            # out_conf = torch.sigmoid(out_output)[:,-1].mean()
-            # out_confs.update(out_conf.data, out_len)
-            # print("out energy max: ", out_energy.max())
-            # print("out energy min: ", out_energy.min())
-            # print("out energy mean: ", out_energy.mean())
-
             out_energy_loss = torch.pow(F.relu(self.args.m_out-out_energy), 2).mean()
+            loss = in_loss + self.args.eta * (in_energy_loss + out_energy_loss)
 
-            in_losses.update(in_loss.data + in_energy_loss.data, in_len) 
+            # update Average meters
+            in_losses.update(in_loss.data, in_len) 
             in_energy_losses.update(in_energy_loss.data, in_len)
             out_energy_losses.update(out_energy_loss.data, out_len)
             in_energy_all.update(in_energy.mean().data, in_len)
             out_energy_all.update(out_energy.mean().data, in_len)
 
-            loss = in_loss + self.args.eta * (in_energy_loss + out_energy_loss)
-            # loss = in_loss + self.args.beta * out_loss
-
+            # update params
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -308,8 +295,8 @@ class NeuralLinear(object):
                         in_energy_all=in_energy_all,
                         out_energy_all=out_energy_all,
                         ))
-        
-        # self.push_to_cyclic_buffer(epoch_buffer_in, epoch_buffer_out, epoch)
+        if bayes:
+            self.push_to_cyclic_buffer(epoch_buffer_in, epoch_buffer_out, epoch)
 
         # log to TensorBoard
         # if self.args.tensorboard:
@@ -574,8 +561,9 @@ class NeuralLinear(object):
 
         return np.mean(FinalMAPs)
 
-    def validate_energy(self, val_loader, epoch, log):
+    def validate_energy(self, val_loader, epoch, log, bayes = False):
         in_energy = AverageMeter()
+        in_bys_confs = AverageMeter()
         self.model.eval()
         self.clsfier.eval()
         init = True
@@ -589,6 +577,14 @@ class NeuralLinear(object):
                 # labels = torch.cat( (labels, extra_col), dim = 1).cuda().float()
                 labels = labels.cuda().float()
                 outputs = self.model(images)
+                if bayes: 
+                    latent_z = self.clsfier.intermediate_forward(outputs) #DEBUG
+                    in_bys_conf = torch.sigmoid(torch.mm(self.beta_s, latent_z.T).T).mean()  #DEBUG
+                    in_bys_confs.update(in_bys_conf.data, len(labels))  #DEBUG
+                    if i % self.args.print_freq == 0:
+                        log.debug('Epoch: [{0}] Batch#[{1}/{2}]\t'
+                                  'In Bayesian Conf {in_bys_confs.val:.4f} ({in_bys_confs.avg:.4f})'.format(
+                                epoch, i, len(val_loader), in_bys_confs=in_bys_confs))
                 outputs = self.clsfier(outputs)
                 E_y = torch.log(1+torch.exp(outputs))
                 energy = -1 * torch.sum(E_y, dim = 1).mean()

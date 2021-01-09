@@ -17,7 +17,7 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision
-
+from matplotlib import pyplot as plt
 
 import utils.svhn_loader as svhn
 from models.fine_tuning_layer import clssimp as clssimp
@@ -81,14 +81,14 @@ parser.add_argument('--no-bottleneck', dest='bottleneck', action='store_false',
 parser.add_argument('--beta', default=2.0, type=float, help='beta for out_loss')
 parser.add_argument('--gamma', default=10.0, type=float, help='gamma for in_out_loss')
 parser.add_argument('--eta', default=0.01, type=float, help='eta for energy loss')
-parser.add_argument('--m_in', default=-15, type=float, help='M_in for energy loss')
-parser.add_argument('--m_out', default=-3, type=float, help='M_out for energy loss')
+parser.add_argument('--m_in', default=-10, type=float, help='M_in for energy loss')
+parser.add_argument('--m_out', default=-1, type=float, help='M_out for energy loss')
 # ood sampling and mining
-parser.add_argument('--ood-batch-size', default= 200, type=int,
+parser.add_argument('--ood-batch-size', default= 400, type=int,
                     help='mini-batch size (default: 400) used for ood mining')
-parser.add_argument('--pool-size', default= 100, type=int,
+parser.add_argument('--pool-size', default= 500, type=int,
                     help='pool size')
-parser.add_argument('--ood_factor', type=float, default= 3,
+parser.add_argument('--ood_factor', type=float, default= 2,
                  help='ood_dataset_size = len(train_loader.dataset) * ood_factor default = 2.0')
 #posterior sampling
 parser.add_argument('--a0', type=float, default=6.0, help='a0')
@@ -100,7 +100,7 @@ parser.add_argument('--conf', type=float, default=4.6, help='control ground trut
 # saving, naming and logging
 parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
-parser.add_argument('--name', default = "debug_30_energy", type=str,
+parser.add_argument('--name', default = "debug_energy_blr_2", type=str,
                     help='name of experiment')
 parser.add_argument('--tensorboard',
                     help='Log progress to TensorBoard', action='store_true')
@@ -310,21 +310,21 @@ def main():
     #CORE
     best_map = 0.0
     mAPs = []
-    # bayes_nn.sample_BDQN()
+    bayes_nn.sample_BDQN()
     for epoch in range(args.start_epoch, args.epochs):
-        adjust_learning_rate(optimizer, epoch, lr_schedule)
+        # adjust_learning_rate(optimizer, epoch, lr_schedule)
         print("in every epoch, the total ood pool size is : ", args.ood_batch_size * args.pool_size )
         print("will sample {} ood from it for training".format(ood_dataset_size)) 
         selected_ood_loader = select_ood(ood_loader, model, clsfier, bayes_nn, args.batch_size * args.ood_factor, 
-                                            num_classes, pool_size, ood_dataset_size, log)
-        torch.cuda.empty_cache()                                    
-        bayes_nn.train_blr_energy(train_loader, selected_ood_loader, criterion, optimizer, epoch, directory, log)
-       # bayes_nn.update_representation()
-       # bayes_nn.update_bays_reg_BDQN(log)
-       # bayes_nn.sample_BDQN()
+                                            num_classes, pool_size, ood_dataset_size, log, epoch, True)
+        # torch.cuda.empty_cache()                                    
+        bayes_nn.train_blr_energy(train_loader, selected_ood_loader, criterion, optimizer, epoch, directory, log, True)
+        bayes_nn.update_representation()
+        bayes_nn.update_bays_reg_BDQN(log)
+        bayes_nn.sample_BDQN()
     
         # evaluate on validation set
-        mAP = bayes_nn.validate_energy(val_loader, epoch, log)
+        mAP = bayes_nn.validate_energy(val_loader, epoch, log, True)
         if mAP > best_map:
             save_checkpoint({
                 'epoch': epoch + 1,
@@ -334,9 +334,6 @@ def main():
             best_map = mAP
             mAPs.append(mAP)
             log.debug("Epoch [%d/%d][saved] mAP: %.4f" % (epoch + 1, args.epochs, mAP))
-
-            # test_mAP = validate(args, model, clsfier, test_loader, num_classes, True)
-            # print("Epoch [%d/%d][test set] test_mAP: %.4f" % (epoch + 1, args.epochs, test_mAP))
         else:
             if epoch % 5 == 0:
                 save_checkpoint({
@@ -347,12 +344,16 @@ def main():
             best_map = mAP
             mAPs.append(mAP)
             log.debug("Epoch [%d/%d][saved] mAP: %.4f" % (epoch + 1, args.epochs, mAP))
-            # print("Epoch [%d/%d][----] mAP: %.4f" % (epoch + 1, args.epochs, mAP))
-
+    
+        #DEBUG BAYES
+        log.debug("cov and mean checking...")
+        log.debug(f"cov: {bayes_nn.cov_w[0,:6,:6]}")
+        log.debug(f"mu: {bayes_nn.mu_w[0][:20]}")
+        #END DEBUG BAYES
     torch.save(torch.tensor(mAPs), os.path.join(directory, "all_mAPs.data") )     
 
 
-def select_ood(ood_loader, model, clsfier, bayes_model, batch_size, num_classes, pool_size, ood_dataset_size, log):
+def select_ood(ood_loader, model, clsfier, bayes_model, batch_size, num_classes, pool_size, ood_dataset_size, log, epoch, bayes = False):
 
     # start at a random point of the outlier dataset; this induces more randomness without obliterating locality
     offset = np.random.randint(len(ood_loader.dataset))
@@ -371,7 +372,9 @@ def select_ood(ood_loader, model, clsfier, bayes_model, batch_size, num_classes,
     clsfier.eval()
     with torch.no_grad():
         all_ood_input = []
-        # clsfier_all_ood_conf = []
+        if bayes:
+            all_abs_val = []
+            all_ood_conf = []
         for k in range(pool_size): 
             if k % 50 == 0:
                 print("ood selection batch ", k)
@@ -386,25 +389,41 @@ def select_ood(ood_loader, model, clsfier, bayes_model, batch_size, num_classes,
                 out_set = next(out_iter)
 
             input = out_set[0] 
-            #Clsifier branch results
-            # model.to(input.device)
-            # clsfier_output = clsfier(model(input.cuda()))
-            # clsfier_prob = torch.sigmoid(clsfier_output)
-            # clsfier_all_ood_conf.extend(clsfier_prob[:,-1].unsqueeze(-1).detach().cpu().numpy())
+            if bayes:
+                output = bayes_model.predict(input.cuda())
+                abs_val = torch.abs(output).squeeze() 
+                prob = torch.sigmoid(output)  
+                all_ood_conf.extend(prob.detach().cpu().numpy())
+                all_abs_val.extend(abs_val.detach().cpu().numpy())
 
             all_ood_input.append(input)
 
         all_ood_input = torch.cat(all_ood_input, 0)
-        N = all_ood_input.shape[0]
-        print(f"N is {N}")
-        # clsfier_all_ood_conf = np.array(clsfier_all_ood_conf).squeeze()
-
-        selected_indices = np.random.choice(N, ood_dataset_size, replace = False)
-        # selected_indices = argmin_abs_val[: ood_dataset_size]
-        # clsfier_selected_ood_conf = clsfier_all_ood_conf[selected_indices]
-        print('Total OOD samples: ', len(selected_indices))
-        # log.debug(f'(Softmax classifier) Max OOD Conf: {np.max(clsfier_all_ood_conf)} Min OOD Conf: {np.min(clsfier_all_ood_conf)} Average OOD Conf: {np.mean(clsfier_all_ood_conf)}')
-        # log.debug(f'(Softmax classifier) Selected Max OOD Conf: {np.max(clsfier_selected_ood_conf)} Selected Min OOD Conf: {np.min(clsfier_selected_ood_conf)} Selected Average OOD Conf: {np.mean(clsfier_selected_ood_conf)}')
+        if bayes:
+            all_abs_val = np.array(all_abs_val)
+            all_ood_conf = np.array(all_ood_conf)
+            argmin_abs_val = np.argsort(all_abs_val) 
+            selected_indices = argmin_abs_val[: ood_dataset_size]
+            selected_ood_conf = all_ood_conf[selected_indices]
+            print('Total selected OOD samples: ', len(selected_indices))
+            log.debug(f'Max OOD Conf: {np.max(all_ood_conf)} Min OOD Conf: {np.min(all_ood_conf)} Average OOD Conf: {np.mean(all_ood_conf)}')
+            log.debug(f'Selected Max OOD Conf: {np.max(selected_ood_conf)} Selected Min OOD Conf: {np.min(selected_ood_conf)} Selected Average OOD Conf: {np.mean(selected_ood_conf)}')
+            fig, (ax1,ax2) = plt.subplots(1, 2, figsize=(24,12))
+            _, bins, _ = ax1.hist(all_ood_conf, bins = 20,  density = False,alpha=0.5, label='all ood conf')
+            ax2.hist(selected_ood_conf, bins = bins, density = False, alpha=0.5, label='selected ood conf')
+            ax1.set_ylim(0, 6000)
+            ax2.set_ylim(0, 6000)
+            ax1.legend(loc='upper right')
+            ax1.set_title("All OOD Conf Range")
+            ax2.legend(loc='upper right')
+            ax2.set_title("Selected OOD Conf Range")
+            plt.savefig(f"ood_at_{epoch}.png")
+        else: # random selection
+            selected_indices = np.random.choice(all_ood_input.shape[0], ood_dataset_size, replace = False)
+            print('Total selected OOD samples: ', len(selected_indices))
+            
+        
+        # construct OOD training set
         ood_images = all_ood_input[selected_indices]
         ood_labels = (torch.ones(ood_dataset_size) * -1).long()
 
