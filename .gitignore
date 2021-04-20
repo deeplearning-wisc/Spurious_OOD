@@ -2,3 +2,4 @@
 **/datasets/ood_datasets
 **/datasets/random_shape
 **/datasets/svhn
+*.DS_Store
