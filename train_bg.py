@@ -33,6 +33,7 @@ from utils.pascal_voc_loader import pascalVOCSet
 from utils import cocoloader
 from utils.transform import ReLabel, ToLabel, ToSP, Scale
 from utils import ImageNet
+from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC
 
 from datasets.color_mnist import get_biased_mnist_dataloader
 from torch.autograd import grad
