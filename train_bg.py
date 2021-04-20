@@ -33,7 +33,7 @@ from utils.pascal_voc_loader import pascalVOCSet
 from utils import cocoloader
 from utils.transform import ReLabel, ToLabel, ToSP, Scale
 from utils import ImageNet
-from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC
+from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC, ReBiasModels
 
 from datasets.color_mnist import get_biased_mnist_dataloader
 from torch.autograd import grad
@@ -426,7 +426,7 @@ def irm_train(model, clsfier, train_loaders, criterion, optimizer, epoch):
 
     batch_idx += 1
 
-def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch):
+def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch, n_g_update=1):
     outer_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'},
     inner_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'},
     inner_criterion = MinusRbfHSIC(**inner_criterion_config)
