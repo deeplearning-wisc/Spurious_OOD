@@ -387,12 +387,10 @@ def train_contrast(train_loader1, train_loader2, model, clsfier, criterion, opti
         log_value('nat_train_loss', nat_losses.avg, epoch)
         log_value('nat_train_acc', nat_top1.avg, epoch)
 
-
 def compute_irm_penalty(losses, dummy):
   g1 = grad(losses[0::2].mean(), dummy, create_graph=True)[0]
   g2 = grad(losses[1::2].mean(), dummy, create_graph=True)[0]
   return (g1 * g2).sum()
-
 
 def irm_train(model, clsfier, train_loaders, criterion, optimizer, epoch):
   model.train()
@@ -427,6 +425,63 @@ def irm_train(model, clsfier, train_loaders, criterion, optimizer, epoch):
 
     batch_idx += 1
 
+def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch):
+    outer_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'},
+    inner_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'},
+    inner_criterion = MinusRbfHSIC(**inner_criterion_config)
+    outer_criterion = RbfHSIC(**outer_criterion_config)
+    classification_criterion = nn.CrossEntropyLoss()
+    
+    def update_g(model, data, target, g_lambda_inner=1):
+        model.train()
+        
+        g_loss = 0
+        for g_idx, g_net in enumerate(model.g_nets):
+            preds, g_feats = g_net(data)
+            _g_loss = 0
+
+            _g_loss_cls = classification_criterion(preds, target)
+            _g_loss += _g_loss_cls
+
+            _, f_feats = model.f_net(data)
+            _g_loss_inner = inner_criterion(g_feats, f_feats, labels=target)
+            _g_loss += g_lambda_inner * _g_loss_inner
+        
+        g_loss += _g_loss
+        g_optimizer.zero_grad()
+        g_loss.backward()
+        g_optimizer.step()
+
+    def update_f(model, data, target, f_lambda_outer=1):
+        model.train()
+
+        f_loss = 0
+        preds, f_feats = model.f_net(data)
+        f_loss_cls = classification_criterion(preds, target)
+        f_loss += f_loss_cls
+
+        f_loss_indep = 0
+        for g_idx, g_net in enumerate(model.g_nets):
+            _g_preds, _g_feats = g_net(x)
+            _f_loss_indep = outer_criterion(f_feats, _g_feats, labels=target, f_pred=preds)
+            f_loss_indep += _f_loss_indep
+        f_loss += f_lambda_outer * f_loss_indep
+
+        f_optimizer.zero_grad()
+        f_loss.backward()
+        f_optimizer.step()
+
+    model = ReBiasModels(f_model, g_model)
+    for i in range(epoch):
+        for loader in train_loaders:
+            model.train()
+            data, target, _ = next(loader, (None, None, None))
+            if data is None:
+                return
+            data, target = data.cuda(), target.cuda()
+            for _ in range(n_g_update):
+                update_g(model, data, target)
+            update_f(model, data, target)
 
 def validate(val_loader, model, clsfier, criterion, epoch, log):
     """Perform validation on the validation set"""
