@@ -67,7 +67,9 @@ parser.add_argument('-b', '--batch-size', default= 64, type=int,
 # ood
 parser.add_argument('--ood-batch-size', default= 64, type=int,
                     help='mini-batch size (default: 400) used for testing')
-parser.add_argument('--name', '-n', default = "irm_test_2", type=str,
+parser.add_argument('--data_label_correlation', default= 0.4, type=float,
+                    help='data_label_correlation')
+parser.add_argument('--name', '-n', default = "irm_test_0.4_3rd", type=str,
                     help='name of experiment')
 parser.add_argument('--test_epochs', "-e", default = "10", type=str,
                      help='# epoch to test performance')
@@ -164,11 +166,11 @@ def main():
     elif args.in_dataset == "color_mnist":
         # val_loader  = get_ood_loader("0_background")
         val_loader = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
-                                            data_label_correlation= 0.85,
+                                            data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= 4,
                                             train=False, partial=True, cmap = "2")
         val_loader_cam = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=1,
-                                            data_label_correlation= 1,
+                                            data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= 9,
                                             train=False, partial=False, cmap = "2")
         num_classes = 5

@@ -6,10 +6,8 @@ import time
 import random
 import json
 import logging
-
 import numpy as np
 import torch
-import torchvision
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
@@ -18,23 +16,23 @@ import torch.optim
 import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-from torch.distributions.multivariate_normal import MultivariateNormal
-
+import torchvision
 import utils.svhn_loader as svhn
-from torch.utils.data import Sampler
-from utils.pascal_voc_loader import pascalVOCSet
-from utils import cocoloader
-from utils.transform import ReLabel, ToLabel, ToSP, Scale
-from utils import ImageNet
-
 from models.fine_tuning_layer import clssimp as clssimp
 import models.densenet as dn
 import models.wideresnet as wn
 import models.resnet as rn
 import models.simplenet as sn
-# from utils import TinyImages
+from utils import LinfPGDAttack, TinyImages
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
+from torch.distributions.multivariate_normal import MultivariateNormal
+
+from torch.utils.data import Sampler
+from utils.pascal_voc_loader import pascalVOCSet
+from utils import cocoloader
+from utils.transform import ReLabel, ToLabel, ToSP, Scale
+from utils import ImageNet
 
 from datasets.color_mnist import get_biased_mnist_dataloader
 from torch.autograd import grad
@@ -75,17 +73,19 @@ parser.add_argument('--weight-decay', '--wd', default=0.0001, type=float,
 #                     help='compression rate in transition stage (default: 0.5)')
 # parser.add_argument('--no-bottleneck', dest='bottleneck', action='store_false',
 #                     help='To not use bottleneck block')
+parser.add_argument('--data_label_correlation', default= 0.4, type=float,
+                    help='data_label_correlation')
 # saving, naming and logging
 parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
-parser.add_argument('--name', default = "irm_test_2", type=str,
+parser.add_argument('--name', default = "irm_test_0.4_3rd", type=str,
                     help='name of experiment')
 parser.add_argument('--tensorboard',
                     help='Log progress to TensorBoard', action='store_true')
 parser.add_argument('--log_name',
                     help='Name of the Log File', type = str, default = "info.log")
 #Device options
-parser.add_argument('--gpu-ids', default='7', type=str,
+parser.add_argument('--gpu-ids', default='5', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
 # Miscs
 parser.add_argument('--manualSeed', type=int, help='manual seed')
@@ -163,15 +163,15 @@ def main():
         val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch_size, num_workers= 4, shuffle=False, pin_memory=True)
     elif args.in_dataset == "color_mnist":
             train_loader1 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
-                                            data_label_correlation= 0.85,
+                                            data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= 4,
                                             train=True, partial=True, cmap = "1")
             train_loader2 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
-                                            data_label_correlation= 0.85,
+                                            data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= 4,
                                             train=True, partial=True, cmap = "2")
             val_loader = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
-                                            data_label_correlation= 0.85,
+                                            data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= 4,
                                             train=False, partial=True, cmap = "1")
             num_classes = 5
