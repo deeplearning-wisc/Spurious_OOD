@@ -1,0 +1,4 @@
+**/datasets/MNIST
+**/datasets/ood_datasets
+**/datasets/random_shape
+**/datasets/svhn
