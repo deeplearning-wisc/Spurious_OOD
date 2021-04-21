@@ -119,6 +119,9 @@ np.random.seed(args.manualSeed)
 if use_cuda:
     torch.cuda.manual_seed_all(args.manualSeed)
 
+def flatten(list_of_lists):
+    return itertools.chain.from_iterable(list_of_lists)
+
 def main():
     if args.tensorboard: configure("runs/%s"%(args.name))
 
@@ -207,6 +210,11 @@ def main():
         features = list(orig_resnet.children())
         model = nn.Sequential(*features[0:8])
         clsfier = clssimp(2048, num_classes )
+    elif args.model_arch == "rebias_conv":
+        f_config = {'kernel_size': 7, 'feature_pos': 'post'}
+        g_config = {'kernel_size': 1, 'feature_pos': 'post'}
+        f_model = SimpleConvNet(**f_config)
+        g_model = [SimpleConvNet(**g_config) for _ in range(n_g_nets)]
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
@@ -229,7 +237,12 @@ def main():
 
 
     # model = scnn.ConvNet().cuda()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    
+    if args.model_arch == "rebias_conv":
+        f_optimizer = torch.optim.Adam(f_model.parameters(), lr=0.001)
+        g_optimizer = torch.optim.Adam(flatten([g_net.parameters() for g_net in g_model]), lr=0.001)
+    else:
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # optimizer = torch.optim.SGD([{'params': model.parameters(),'lr':args.lr/10},
     #                             {'params': clsfier.parameters()}], args.lr,
@@ -253,12 +266,21 @@ def main():
             print("=> no checkpoint found at '{}'".format(args.resume))
 
     freeze_bn_affine = True
-    for m in model.modules():
-        if isinstance(m, nn.BatchNorm2d):
-            m.eval()
-            if freeze_bn_affine:
-                m.weight.requires_grad = False
-                m.bias.requires_grad = False
+    def freeze_bn(model, freeze_bn_affine=True):
+        for m in model.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                m.eval()
+                if freeze_bn_affine:
+                    m.weight.requires_grad = False
+                    m.bias.requires_grad = False
+    
+    if args.model_arch == "rebias_conv":
+        freeze_bn(f_model, freeze_bn_affine)
+        for g_net in g_model:
+            freeze_bn(g_net, freeze_bn_affine)
+    else:
+        freeze_bn(model, freeze_bn_affine)
+    
     #CORE
 
     for epoch in range(args.start_epoch, args.epochs):
@@ -267,7 +289,10 @@ def main():
         # train for one epoch
         # train(train_loader, model, clsfier, criterion, optimizer, epoch, log)
         # train_contrast(train_loader1, train_loader2, model, clsfier, criterion, optimizer, epoch, log)
-        irm_train(model, clsfier, [train_loader1, train_loader2], criterion, optimizer, epoch)
+        if args.model_arch == "rebias_conv":
+            rebias_train(f_model, g_model, [train_loader1, train_loader2], f_optimizer, g_optimizer, epoch)
+        else:
+            irm_train(model, clsfier, [train_loader1, train_loader2], criterion, optimizer, epoch)  
         # evaluate on validation set
 
         prec1 = validate(val_loader, model, clsfier, criterion, epoch, log)
@@ -279,6 +304,7 @@ def main():
                 'state_dict_model': model.state_dict(),
                 'state_dict_clsfier': clsfier.state_dict(),
             }, epoch + 1) 
+    
 
 def train(train_loader, model, clsfier, criterion, optimizer, epoch, log):
     """Train for one epoch on the training set"""
@@ -473,16 +499,15 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
         f_optimizer.step()
 
     model = ReBiasModels(f_model, g_model)
-    for i in range(epoch):
-        for loader in train_loaders:
-            model.train()
-            data, target, _ = next(loader, (None, None, None))
-            if data is None:
-                return
-            data, target = data.cuda(), target.cuda()
-            for _ in range(n_g_update):
-                update_g(model, data, target)
-            update_f(model, data, target)
+    for loader in train_loaders:
+        model.train()
+        data, target, _ = next(loader, (None, None, None))
+        if data is None:
+            return
+        data, target = data.cuda(), target.cuda()
+        for _ in range(n_g_update):
+            update_g(model, data, target)
+        update_f(model, data, target)
 
 def validate(val_loader, model, clsfier, criterion, epoch, log):
     """Perform validation on the validation set"""
