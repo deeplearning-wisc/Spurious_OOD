@@ -20,24 +20,25 @@ import torchvision
 from matplotlib import pyplot as plt
 from sklearn import metrics
 
-import utils.svhn_loader as svhn
+# import utils.svhn_loader as svhn
 from models.fine_tuning_layer import clssimp as clssimp
 import models.densenet as dn
 import models.wideresnet as wn
 import models.resnet as rn
 import models.simplenet as sn
-from neural_linear_mlc import NeuralLinear
-from utils import LinfPGDAttack, TinyImages
+# from neural_linear_mlc import NeuralLinear
+# from utils import LinfPGDAttack, TinyImages
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
 from torch.distributions.multivariate_normal import MultivariateNormal
+from rebias_utils import SimpleConvNet
 
 from torch.utils.data import Sampler
-from utils.pascal_voc_loader import pascalVOCSet
-from utils import cocoloader
-from utils.transform import ReLabel, ToLabel, ToSP, Scale
-from utils import ImageNet
-from neural_linear_mlc import SimpleDataset
+# from utils.pascal_voc_loader import pascalVOCSet
+# from utils import cocoloader
+# from utils.transform import ReLabel, ToLabel, ToSP, Scale
+# from utils import ImageNet
+# from neural_linear_mlc import SimpleDataset
 from datasets.color_mnist import get_biased_mnist_dataloader
 import cv2
 from torch.utils.data.dataloader import default_collate
@@ -189,6 +190,10 @@ def main():
         features = list(orig_resnet.children())
         model = nn.Sequential(*features[0:8])
         clsfier = clssimp(512, num_classes)
+    elif args.model_arch == "rebias_conv":
+        f_config = {'num_classes': 5, 'kernel_size': 7, 'feature_pos': 'post'}
+        model = SimpleConvNet(**f_config).cuda()
+        clsfier = None
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
@@ -210,25 +215,27 @@ def main():
         checkpoint = torch.load("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=args.in_dataset, name=args.name, epochs= test_epoch))
         # model.load_state_dict(checkpoint['state_dict'])
         model.load_state_dict(checkpoint['state_dict_model'])
-        clsfier.load_state_dict(checkpoint['state_dict_clsfier'])
         model.eval()
         model.cuda()
-        clsfier.eval()
-        clsfier.cuda()
+        if args.model_arch != "rebias_conv":
+            clsfier.load_state_dict(checkpoint['state_dict_clsfier'])
+            clsfier.eval()
+            clsfier.cuda()
         save_dir =  f"./energy_results/{args.in_dataset}/{args.name}"
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         print("processing ID")
         # id_sum_energy, id_cmt = get_energy(args, model, clsfier, val_loader, test_epoch, log, id = False)
         # id_sum_energy = get_energy_biased(args, model, clsfier, val_loader, test_epoch, log, id = False)
-        id_sum_energy,id_cmt = get_energy_biased(args, model, clsfier, val_loader, test_epoch, log, id = True)
+        rebias = (args.model_arch == "rebias_conv")
+        id_sum_energy,id_cmt = get_energy_biased(args, model, clsfier, val_loader, test_epoch, log, rebias, id = True)
         with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}.npy'), 'wb') as f:
             np.save(f, id_sum_energy)
             # np.save(f, id_cmt)
         for out_dataset in out_datasets:
             print("processing OOD dataset ", out_dataset)
             testloaderOut = get_ood_loader(out_dataset)
-            ood_sum_energy = get_energy(args, model, clsfier, testloaderOut, test_epoch, log, id = False)
+            ood_sum_energy = get_energy(args, model, clsfier, testloaderOut, test_epoch, log, rebias, id = False)
             # ood_sum_energy, ood_cmt = get_energy(args, model, clsfier, testloaderOut, test_epoch, log, id = True)
             with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}.npy'), 'wb') as f:
                 np.save(f, ood_sum_energy)
@@ -249,11 +256,12 @@ def main():
         # testloaderOut, testloaderOut_cam = get_ood_loader(out_dataset, CAM  = True)
         # get_cam_per_class(args, model, clsfier,  testloaderOut_cam, out_dataset, num_result = 120, size_upsample = (32, 32))
 
-def get_energy(args, model, clsfier, val_loader, epoch, log, id = False, CAM = False):
+def get_energy(args, model, clsfier, val_loader, epoch, log, rebias=False, id = False, CAM = False):
     in_energy = AverageMeter()
     top1 = AverageMeter()
     model.eval()
-    clsfier.eval()
+    if not rebias:
+        clsfier.eval()
     init = True
     log.debug("######## Start collecting energy score ########")
     with torch.no_grad():
@@ -262,8 +270,11 @@ def get_energy(args, model, clsfier, val_loader, epoch, log, id = False, CAM = F
             all_targets = torch.tensor([])
         for i, (images, labels) in enumerate(val_loader):
             images = images.cuda()
-            outputs = model(images)
-            outputs = clsfier(outputs)
+            if rebias:
+                outputs, _ = model(images)
+            else:
+                outputs = model(images)
+                outputs = clsfier(outputs)
             if id:
                 all_targets = torch.cat((all_targets, labels),dim=0)
                 all_preds = torch.cat((all_preds, outputs.argmax(dim=1).cpu()),dim=0)
@@ -294,11 +305,12 @@ def get_energy(args, model, clsfier, val_loader, epoch, log, id = False, CAM = F
         else:
             return sum_energy
 
-def get_energy_biased(args, model, clsfier, val_loader, epoch, log, id = False, CAM = False):
+def get_energy_biased(args, model, clsfier, val_loader, epoch, log, rebias=False, id = False, CAM = False):
     in_energy = AverageMeter()
     top1 = AverageMeter()
     model.eval()
-    clsfier.eval()
+    if not rebias:
+        clsfier.eval()
     init = True
     log.debug("######## Start collecting energy score ########")
     with torch.no_grad():
@@ -307,8 +319,11 @@ def get_energy_biased(args, model, clsfier, val_loader, epoch, log, id = False, 
             all_targets = torch.tensor([])
         for i, (images, labels, _) in enumerate(val_loader):
             images = images.cuda()
-            outputs = model(images)
-            outputs = clsfier(outputs)
+            if not rebias:
+                outputs = model(images)
+                outputs = clsfier(outputs)
+            else:
+                outputs, _ = model(images)
             if id:
                 all_targets = torch.cat((all_targets, labels),dim=0)
                 all_preds = torch.cat((all_preds, outputs.argmax(dim=1).cpu()),dim=0)

@@ -56,7 +56,7 @@ parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('--epochs', default= 10, type=int,
                     help='number of total epochs to run, default = 30')
-parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float,
+parser.add_argument('--lr', '--learning-rate', default=1e-3, type=float,
                     help='initial learning rate')
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=0.0001, type=float,
@@ -213,8 +213,8 @@ def main():
         clsfier = clssimp(2048, num_classes )
     elif args.model_arch == "rebias_conv":
         n_g_nets = 1
-        f_config = {'num_classes': 5, 'kernel_size': 7, 'feature_pos': 'post'}
-        g_config = {'num_classes': 5, 'kernel_size': 1, 'feature_pos': 'post'}
+        f_config = {'num_classes': num_classes, 'kernel_size': 7, 'feature_pos': 'post'}
+        g_config = {'num_classes': num_classes, 'kernel_size': 1, 'feature_pos': 'post'}
         f_model = SimpleConvNet(**f_config).cuda()
         g_model = [SimpleConvNet(**g_config).cuda() for _ in range(n_g_nets)]
     else:
@@ -224,7 +224,6 @@ def main():
         model = model.cuda()
         clsfier = clsfier.cuda()
     
-
     cudnn.benchmark = True
 
     # criterion = nn.BCEWithLogitsLoss().cuda() # sigmoid 
@@ -236,14 +235,11 @@ def main():
     criterion = nn.CrossEntropyLoss().cuda()
     # optimizer = torch.optim.Adam([{'params': model.parameters(),'lr':args.lr/10},
     #                             {'params': clsfier.parameters()}], lr=args.lr)
-
-
-
     # model = scnn.ConvNet().cuda()
     
     if args.model_arch == "rebias_conv":
-        f_optimizer = torch.optim.Adam(f_model.parameters(), lr=0.001)
-        g_optimizer = torch.optim.Adam(flatten([g_net.parameters() for g_net in g_model]), lr=0.001)
+        f_optimizer = torch.optim.Adam(f_model.parameters(), lr=args.lr)
+        g_optimizer = torch.optim.Adam(flatten([g_net.parameters() for g_net in g_model]), lr=args.lr)
     else:
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -509,15 +505,16 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
 
     model = ReBiasModels(f_model, g_model)
     train_loaders = [iter(x) for x in train_loaders]
-    for loader in train_loaders:
-        model.train()
-        data, target, _ = next(loader, (None, None, None))
-        if data is None:
-            return
-        data, target = data.cuda(), target.cuda()
-        for _ in range(n_g_update):
-            update_g(model, data, target)
-        update_f(model, data, target)
+    while True:
+        for loader in train_loaders:
+            model.train()
+            data, target, _ = next(loader, (None, None, None))
+            if data is None:
+                return
+            data, target = data.cuda(), target.cuda()
+            for _ in range(n_g_update):
+                update_g(model, data, target)
+            update_f(model, data, target)
 
 def rebias_validate(f_model, val_loader, epoch, log):
     """Perform validation on the validation set"""
