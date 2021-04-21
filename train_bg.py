@@ -213,16 +213,17 @@ def main():
         clsfier = clssimp(2048, num_classes )
     elif args.model_arch == "rebias_conv":
         n_g_nets = 1
-        f_config = {'kernel_size': 7, 'feature_pos': 'post'}
-        g_config = {'kernel_size': 1, 'feature_pos': 'post'}
-        f_model = SimpleConvNet(**f_config)
-        g_model = [SimpleConvNet(**g_config) for _ in range(n_g_nets)]
+        f_config = {'num_classes': 5, 'kernel_size': 7, 'feature_pos': 'post'}
+        g_config = {'num_classes': 5, 'kernel_size': 1, 'feature_pos': 'post'}
+        f_model = SimpleConvNet(**f_config).cuda()
+        g_model = [SimpleConvNet(**g_config).cuda() for _ in range(n_g_nets)]
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
     if args.model_arch != "rebias_conv":
         model = model.cuda()
         clsfier = clsfier.cuda()
+    
 
     cudnn.benchmark = True
 
@@ -292,20 +293,26 @@ def main():
         # train_contrast(train_loader1, train_loader2, model, clsfier, criterion, optimizer, epoch, log)
         if args.model_arch == "rebias_conv":
             rebias_train(f_model, g_model, [train_loader1, train_loader2], f_optimizer, g_optimizer, epoch)
+            prec1 = rebias_validate(f_model, val_loader, epoch, log)
+            if (epoch + 1) % args.save_epoch == 0:
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict_model': f_model.state_dict(),
+                }, epoch + 1) 
         else:
             adjust_learning_rate(optimizer, epoch, lr_schedule)
             irm_train(model, clsfier, [train_loader1, train_loader2], criterion, optimizer, epoch)  
         # evaluate on validation set
 
-        prec1 = validate(val_loader, model, clsfier, criterion, epoch, log)
+            prec1 = validate(val_loader, model, clsfier, criterion, epoch, log)
 
-        # remember best prec@1 and save checkpoint
-        if (epoch + 1) % args.save_epoch == 0:
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'state_dict_model': model.state_dict(),
-                'state_dict_clsfier': clsfier.state_dict(),
-            }, epoch + 1) 
+            # remember best prec@1 and save checkpoint
+            if (epoch + 1) % args.save_epoch == 0:
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict_model': model.state_dict(),
+                    'state_dict_clsfier': clsfier.state_dict(),
+                }, epoch + 1) 
     
 
 def train(train_loader, model, clsfier, criterion, optimizer, epoch, log):
@@ -491,7 +498,7 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
 
         f_loss_indep = 0
         for g_idx, g_net in enumerate(model.g_nets):
-            _g_preds, _g_feats = g_net(x)
+            _g_preds, _g_feats = g_net(data)
             _f_loss_indep = outer_criterion(f_feats, _g_feats, labels=target, f_pred=preds)
             f_loss_indep += _f_loss_indep
         f_loss += f_lambda_outer * f_loss_indep
@@ -501,6 +508,7 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
         f_optimizer.step()
 
     model = ReBiasModels(f_model, g_model)
+    train_loaders = [iter(x) for x in train_loaders]
     for loader in train_loaders:
         model.train()
         data, target, _ = next(loader, (None, None, None))
@@ -510,6 +518,49 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
         for _ in range(n_g_update):
             update_g(model, data, target)
         update_f(model, data, target)
+
+def rebias_validate(f_model, val_loader, epoch, log):
+    """Perform validation on the validation set"""
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter()
+    classification_criterion = nn.CrossEntropyLoss()
+
+    # switch to evaluate mode
+    f_model.eval()
+
+    with torch.no_grad():
+        end = time.time()
+        for i, (input, target, _) in enumerate(val_loader):
+            input = input.cuda()
+            target = target.cuda()
+            # compute output
+            output, f_feats = f_model(input)
+            loss = classification_criterion(output, target)
+
+            # measure accuracy and record loss
+            prec1 = accuracy(output.data, target, topk=(1,))[0]
+            losses.update(loss.data, input.size(0))
+            top1.update(prec1, input.size(0))
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if i % args.print_freq == 0:
+                log.debug('Test: [{0}/{1}]\t'
+                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                    'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                        i, len(val_loader), batch_time=batch_time, loss=losses,
+                        top1=top1))
+
+    print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+    # log to TensorBoard
+    if args.tensorboard:
+        log_value('val_loss', losses.avg, epoch)
+        log_value('val_acc', top1.avg, epoch)
+    return top1.avg    
 
 def validate(val_loader, model, clsfier, criterion, epoch, log):
     """Perform validation on the validation set"""
