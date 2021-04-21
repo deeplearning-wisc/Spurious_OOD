@@ -6,6 +6,7 @@ import time
 import random
 import json
 import logging
+import itertools
 import numpy as np
 import torch
 import torch.nn as nn
@@ -17,22 +18,22 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision
-import utils.svhn_loader as svhn
+# import utils.svhn_loader as svhn
 from models.fine_tuning_layer import clssimp as clssimp
 import models.densenet as dn
 import models.wideresnet as wn
 import models.resnet as rn
 import models.simplenet as sn
-from utils import LinfPGDAttack, TinyImages
+# from utils import LinfPGDAttack, TinyImages
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 from torch.utils.data import Sampler
-from utils.pascal_voc_loader import pascalVOCSet
-from utils import cocoloader
-from utils.transform import ReLabel, ToLabel, ToSP, Scale
-from utils import ImageNet
+#from utils.pascal_voc_loader import pascalVOCSet
+#from utils import cocoloader
+#from utils.transform import ReLabel, ToLabel, ToSP, Scale
+#from utils import ImageNet
 from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC, ReBiasModels
 
 from datasets.color_mnist import get_biased_mnist_dataloader
@@ -211,6 +212,7 @@ def main():
         model = nn.Sequential(*features[0:8])
         clsfier = clssimp(2048, num_classes )
     elif args.model_arch == "rebias_conv":
+        n_g_nets = 1
         f_config = {'kernel_size': 7, 'feature_pos': 'post'}
         g_config = {'kernel_size': 1, 'feature_pos': 'post'}
         f_model = SimpleConvNet(**f_config)
@@ -218,9 +220,9 @@ def main():
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
-
-    model = model.cuda()
-    clsfier = clsfier.cuda()
+    if args.model_arch != "rebias_conv":
+        model = model.cuda()
+        clsfier = clsfier.cuda()
 
     cudnn.benchmark = True
 
@@ -284,7 +286,6 @@ def main():
     #CORE
 
     for epoch in range(args.start_epoch, args.epochs):
-        adjust_learning_rate(optimizer, epoch, lr_schedule)
 
         # train for one epoch
         # train(train_loader, model, clsfier, criterion, optimizer, epoch, log)
@@ -292,6 +293,7 @@ def main():
         if args.model_arch == "rebias_conv":
             rebias_train(f_model, g_model, [train_loader1, train_loader2], f_optimizer, g_optimizer, epoch)
         else:
+            adjust_learning_rate(optimizer, epoch, lr_schedule)
             irm_train(model, clsfier, [train_loader1, train_loader2], criterion, optimizer, epoch)  
         # evaluate on validation set
 
@@ -453,8 +455,8 @@ def irm_train(model, clsfier, train_loaders, criterion, optimizer, epoch):
     batch_idx += 1
 
 def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch, n_g_update=1):
-    outer_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'},
-    inner_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'},
+    outer_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'}
+    inner_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'}
     inner_criterion = MinusRbfHSIC(**inner_criterion_config)
     outer_criterion = RbfHSIC(**outer_criterion_config)
     classification_criterion = nn.CrossEntropyLoss()
