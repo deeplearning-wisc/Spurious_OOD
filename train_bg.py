@@ -35,6 +35,7 @@ from torch.utils.data import Sampler
 #from utils.transform import ReLabel, ToLabel, ToSP, Scale
 #from utils import ImageNet
 from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC, ReBiasModels
+from dann_utils import CNNModel
 
 from datasets.color_mnist import get_biased_mnist_dataloader
 from torch.autograd import grad
@@ -217,10 +218,13 @@ def main():
         g_config = {'num_classes': num_classes, 'kernel_size': 1, 'feature_pos': 'post'}
         f_model = SimpleConvNet(**f_config).cuda()
         g_model = [SimpleConvNet(**g_config).cuda() for _ in range(n_g_nets)]
+    elif args.model_arch == "dann":
+        model = CNNModel(num_classes=num_classes)
+        model = model.cuda()
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
-    if args.model_arch != "rebias_conv":
+    if args.model_arch != "rebias_conv" and args.model_arch != "dann":
         model = model.cuda()
         clsfier = clsfier.cuda()
     
@@ -241,7 +245,7 @@ def main():
         f_optimizer = torch.optim.Adam(f_model.parameters(), lr=args.lr)
         g_optimizer = torch.optim.Adam(flatten([g_net.parameters() for g_net in g_model]), lr=args.lr)
     else:
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # optimizer = torch.optim.SGD([{'params': model.parameters(),'lr':args.lr/10},
     #                             {'params': clsfier.parameters()}], args.lr,
@@ -283,7 +287,6 @@ def main():
     #CORE
 
     for epoch in range(args.start_epoch, args.epochs):
-
         # train for one epoch
         # train(train_loader, model, clsfier, criterion, optimizer, epoch, log)
         # train_contrast(train_loader1, train_loader2, model, clsfier, criterion, optimizer, epoch, log)
@@ -295,11 +298,19 @@ def main():
                     'epoch': epoch + 1,
                     'state_dict_model': f_model.state_dict(),
                 }, epoch + 1) 
+        elif args.model_arch == "dann":
+            dann_train(model, train_loader1, train_loader2, optimizer, epoch, args.epochs)
+            prec1 = dann_validate(model, val_loader, epoch, log)
+            if (epoch + 1) % args.save_epoch == 0:
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict_model': model.state_dict(),
+                }, epoch + 1)             
         else:
             adjust_learning_rate(optimizer, epoch, lr_schedule)
             irm_train(model, clsfier, [train_loader1, train_loader2], criterion, optimizer, epoch)  
-        # evaluate on validation set
 
+            # evaluate on validation set
             prec1 = validate(val_loader, model, clsfier, criterion, epoch, log)
 
             # remember best prec@1 and save checkpoint
@@ -558,6 +569,83 @@ def rebias_validate(f_model, val_loader, epoch, log):
         log_value('val_loss', losses.avg, epoch)
         log_value('val_acc', top1.avg, epoch)
     return top1.avg    
+
+def dann_train(model, source_train_loader, target_train_loader, optimizer, epoch, n_epoch):
+    len_loader = min(len(source_train_loader), len(target_train_loader))
+    source_train_loader = iter(source_train_loader)
+    target_train_loader = iter(target_train_loader)
+    loss_class = nn.CrossEntropyLoss()
+    loss_domain = nn.CrossEntropyLoss()
+
+    model.train()
+    for i in range(len_loader):
+        optimizer.zero_grad()
+        p = float(i + epoch * len_loader) / n_epoch / len_loader
+        alpha = 2. / (1. + np.exp(-10 * p)) - 1
+
+        # Model training using source data
+        src_img, src_label, _ = source_train_loader.next()
+        src_domain_label = torch.zeros(len(src_label)).long().cuda()
+        src_img, src_label = src_img.cuda(), src_label.cuda()
+
+        class_output, domain_output = model(input_data=src_img, alpha=alpha)
+        err_src_class = loss_class(class_output, src_label)
+        err_src_domain = loss_domain(domain_output, src_domain_label)
+
+        # Model training using target data
+        tar_img, _, _ = target_train_loader.next()
+        tar_domain_label = torch.ones(len(tar_img)).long().cuda()
+        tar_img = tar_img.cuda()
+        
+        _, domain_output = model(input_data=tar_img, alpha=alpha)
+        err_tar_domain = loss_domain(domain_output, tar_domain_label)
+
+        err = err_src_class + err_src_domain + err_tar_domain
+        err.backward()
+        optimizer.step()
+
+def dann_validate(model, val_loader, epoch, log):
+    """Perform validation on the validation set"""
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter()
+    classification_criterion = nn.CrossEntropyLoss()
+
+    # switch to evaluate mode
+    model.eval()
+
+    with torch.no_grad():
+        end = time.time()
+        for i, (input, target, _) in enumerate(val_loader):
+            input = input.cuda()
+            target = target.cuda()
+            # compute output
+            output, _ = model(input, alpha=0)
+            loss = classification_criterion(output, target)
+
+            # measure accuracy and record loss
+            prec1 = accuracy(output.data, target, topk=(1,))[0]
+            losses.update(loss.data, input.size(0))
+            top1.update(prec1, input.size(0))
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if i % args.print_freq == 0:
+                log.debug('Test: [{0}/{1}]\t'
+                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                    'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                        i, len(val_loader), batch_time=batch_time, loss=losses,
+                        top1=top1))
+
+    log.debug(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+    # log to TensorBoard
+    if args.tensorboard:
+        log_value('val_loss', losses.avg, epoch)
+        log_value('val_acc', top1.avg, epoch)
+    return top1.avg   
 
 def validate(val_loader, model, clsfier, criterion, epoch, log):
     """Perform validation on the validation set"""

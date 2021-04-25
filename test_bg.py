@@ -32,6 +32,7 @@ import models.simplenet as sn
 from tensorboard_logger import configure, log_value
 from torch.distributions.multivariate_normal import MultivariateNormal
 from rebias_utils import SimpleConvNet
+from dann_utils import CNNModel
 
 from torch.utils.data import Sampler
 # from utils.pascal_voc_loader import pascalVOCSet
@@ -194,6 +195,9 @@ def main():
         f_config = {'num_classes': 5, 'kernel_size': 7, 'feature_pos': 'post'}
         model = SimpleConvNet(**f_config).cuda()
         clsfier = None
+    elif args.model_arch == "dann":
+        model = CNNModel(num_classes=num_classes).cuda()
+        clsfier = None
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
@@ -217,7 +221,7 @@ def main():
         model.load_state_dict(checkpoint['state_dict_model'])
         model.eval()
         model.cuda()
-        if args.model_arch != "rebias_conv":
+        if args.model_arch != "rebias_conv" and args.model_arch != "dann":
             clsfier.load_state_dict(checkpoint['state_dict_clsfier'])
             clsfier.eval()
             clsfier.cuda()
@@ -227,15 +231,14 @@ def main():
         print("processing ID")
         # id_sum_energy, id_cmt = get_energy(args, model, clsfier, val_loader, test_epoch, log, id = False)
         # id_sum_energy = get_energy_biased(args, model, clsfier, val_loader, test_epoch, log, id = False)
-        rebias = (args.model_arch == "rebias_conv")
-        id_sum_energy,id_cmt = get_energy_biased(args, model, clsfier, val_loader, test_epoch, log, rebias, id = True)
+        id_sum_energy,id_cmt = get_energy_biased(args, model, clsfier, val_loader, test_epoch, log, model_arch=args.model_arch, id = True)
         with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}.npy'), 'wb') as f:
             np.save(f, id_sum_energy)
             # np.save(f, id_cmt)
         for out_dataset in out_datasets:
             print("processing OOD dataset ", out_dataset)
             testloaderOut = get_ood_loader(out_dataset)
-            ood_sum_energy = get_energy(args, model, clsfier, testloaderOut, test_epoch, log, rebias, id = False)
+            ood_sum_energy = get_energy(args, model, clsfier, testloaderOut, test_epoch, log, model_arch=args.model_arch, id = False)
             # ood_sum_energy, ood_cmt = get_energy(args, model, clsfier, testloaderOut, test_epoch, log, id = True)
             with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}.npy'), 'wb') as f:
                 np.save(f, ood_sum_energy)
@@ -256,11 +259,11 @@ def main():
         # testloaderOut, testloaderOut_cam = get_ood_loader(out_dataset, CAM  = True)
         # get_cam_per_class(args, model, clsfier,  testloaderOut_cam, out_dataset, num_result = 120, size_upsample = (32, 32))
 
-def get_energy(args, model, clsfier, val_loader, epoch, log, rebias=False, id = False, CAM = False):
+def get_energy(args, model, clsfier, val_loader, epoch, log, model_arch, id = False, CAM = False):
     in_energy = AverageMeter()
     top1 = AverageMeter()
     model.eval()
-    if not rebias:
+    if clsfier != None:
         clsfier.eval()
     init = True
     log.debug("######## Start collecting energy score ########")
@@ -270,15 +273,17 @@ def get_energy(args, model, clsfier, val_loader, epoch, log, rebias=False, id = 
             all_targets = torch.tensor([])
         for i, (images, labels) in enumerate(val_loader):
             images = images.cuda()
-            if rebias:
+            if model_arch == "rebias_conv":
                 outputs, _ = model(images)
+            elif model_arch == "dann":
+                outputs, _ = model(images, alpha=0)
             else:
                 outputs = model(images)
                 outputs = clsfier(outputs)
             if id:
                 all_targets = torch.cat((all_targets, labels),dim=0)
                 all_preds = torch.cat((all_preds, outputs.argmax(dim=1).cpu()),dim=0)
-                prec1 = accuracy(outputs.data, targets, topk=(1,))[0]
+                prec1 = accuracy(outputs.data, labels, topk=(1,))[0]
                 top1.update(prec1, images.size(0))
             e_s = -torch.logsumexp(outputs, dim=1)
             e_s = e_s.data.cpu().numpy() 
@@ -305,11 +310,11 @@ def get_energy(args, model, clsfier, val_loader, epoch, log, rebias=False, id = 
         else:
             return sum_energy
 
-def get_energy_biased(args, model, clsfier, val_loader, epoch, log, rebias=False, id = False, CAM = False):
+def get_energy_biased(args, model, clsfier, val_loader, epoch, log, model_arch, id = False, CAM = False):
     in_energy = AverageMeter()
     top1 = AverageMeter()
     model.eval()
-    if not rebias:
+    if clsfier != None:
         clsfier.eval()
     init = True
     log.debug("######## Start collecting energy score ########")
@@ -319,11 +324,13 @@ def get_energy_biased(args, model, clsfier, val_loader, epoch, log, rebias=False
             all_targets = torch.tensor([])
         for i, (images, labels, _) in enumerate(val_loader):
             images = images.cuda()
-            if not rebias:
+            if model_arch == "rebias_conv":
+                outputs, _ = model(images)
+            elif model_arch == "dann":
+                outputs, _ = model(images, alpha=0)
+            else:
                 outputs = model(images)
                 outputs = clsfier(outputs)
-            else:
-                outputs, _ = model(images)
             if id:
                 all_targets = torch.cat((all_targets, labels),dim=0)
                 all_preds = torch.cat((all_preds, outputs.argmax(dim=1).cpu()),dim=0)

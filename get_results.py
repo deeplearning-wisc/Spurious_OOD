@@ -65,7 +65,8 @@ def main():
                 plt.title("Energy")
                 plt.ylim(0, 0.3)
                 plt.xlim(-10, 20)
-                plt.savefig(f"energy_{out_dataset}.png", bbox_inches='tight')
+                save_name = out_dataset + "_" + args.name
+                plt.savefig(f"energy_{save_name}.png", bbox_inches='tight')
         print("Avg FPR95: ", round(100 * all_results["FPR95"]/len(out_datasets),2))
         print("Avg AUROC: ", round(all_results["AUROC"]/len(out_datasets),4))
         print("Avg AUPR: ", round(all_results["AUPR"]/len(out_datasets),4))

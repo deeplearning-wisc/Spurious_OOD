@@ -28,7 +28,7 @@ class SimpleConvNet(nn.Module):
         ]
         self.extracter = nn.Sequential(*layers)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(128, 10)
+        self.fc = nn.Linear(128, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
