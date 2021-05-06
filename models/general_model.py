@@ -1,11 +1,11 @@
 import torch.nn as nn
-from .functions import ReverseLayerF, PositiveLayerF
+from utils.dann_utils import ReverseLayerF, PositiveLayerF
 
 class CNNModel(nn.Module):
 
-    def __init__(self, num_classes, bn_init, rebias=False):
+    def __init__(self, num_classes, bn_init, dann=False):
         super(CNNModel, self).__init__()
-        self.rebias = rebias
+        self.dann = dann
         self.feature = nn.Sequential()
         self.feature.add_module('f_conv1', nn.Conv2d(3, 64, kernel_size=5))
         if bn_init:
@@ -30,7 +30,7 @@ class CNNModel(nn.Module):
         #self.class_classifier.add_module('c_relu2', nn.ReLU(True))
         self.class_classifier.add_module('c_fc3', nn.Linear(100, num_classes))
 
-        if self.rebias:
+        if self.dann:
             self.domain_classifier = nn.Sequential()
             self.domain_classifier.add_module('d_fc1', nn.Linear(50 * 4 * 4, 100))
             self.domain_classifier.add_module('d_bn1', nn.BatchNorm1d(100))
@@ -42,7 +42,7 @@ class CNNModel(nn.Module):
         feature = self.feature(input_data)
         feature = feature.view(-1, 50 * 4 * 4)
         class_output = self.class_classifier(feature)
-        if self.rebias:
+        if self.dann:
             reverse_feature = ReverseLayerF.apply(feature, alpha)
             domain_output = self.domain_classifier(reverse_feature)
             return feature, class_output, domain_output

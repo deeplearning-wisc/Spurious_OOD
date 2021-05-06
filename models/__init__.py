@@ -4,3 +4,4 @@ from .densenet import *
 from .wideresnet import *
 from .resnet import *
 from .simpleCNN import *
+from .general_model import *

@@ -125,8 +125,8 @@ class BiasedMNIST(MNIST):
         bias_indices[label] = torch.cat([bias_indices[label], correlated_indices]) # update bias_indices of the label. good trick: can cat empty tensor with a tensor list 
 
         decorrelated_indices = torch.split(indices[n_correlated_samples:], n_decorrelated_per_class)
-        if self.Partial: 
-            other_labels = [_label % 5 for _label in range(label + 1, label + 1 + self.n_confusing_labels)]
+        if self.Partial: # temp GDRO 
+            other_labels = [_label % 2 for _label in range(label + 1, label + 1 + self.n_confusing_labels)]
         else:
             other_labels = [_label % 10 for _label in range(label + 1, label + 1 + self.n_confusing_labels)]
         self._shuffle(other_labels) # e.g. if current label = 0, then shuffled other_labels = [8, 4, 2, 7, 5, 1, 9, 6, 3]
@@ -140,8 +140,8 @@ class BiasedMNIST(MNIST):
     def build_biased_mnist(self):
         """Build biased MNIST.
         """
-        if self.Partial:
-            n_labels = 5
+        if self.Partial: # temp GDRO
+            n_labels = 2
         else: 
             n_labels = self.targets.max().item() + 1
 

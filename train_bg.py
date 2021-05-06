@@ -18,24 +18,19 @@ import torch.utils.data
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision
-# import utils.svhn_loader as svhn
 from models.fine_tuning_layer import clssimp as clssimp
 import models.densenet as dn
 import models.wideresnet as wn
 import models.resnet as rn
 import models.simplenet as sn
-# from utils import LinfPGDAttack, TinyImages
+from models import CNNModel
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
 from torch.distributions.multivariate_normal import MultivariateNormal
 
 from torch.utils.data import Sampler
-#from utils.pascal_voc_loader import pascalVOCSet
-#from utils import cocoloader
-#from utils.transform import ReLabel, ToLabel, ToSP, Scale
-#from utils import ImageNet
 from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC, ReBiasModels
-from dann_utils import CNNModel
+# from dann_utils import CNNModel
 
 from datasets.color_mnist import get_biased_mnist_dataloader
 from torch.autograd import grad
@@ -45,6 +40,7 @@ parser = argparse.ArgumentParser(description='OOD training for multi-label class
 
 parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-distribution dataset e.g. IN-9')
 parser.add_argument('--model-arch', default='resnet18', type=str, help='model architecture e.g. resnet101')
+parser.add_argument('--method', default='dann', type=str, help='method used for model training')
 parser.add_argument('--save-epoch', default= 10, type=int,
                     help='save the model every save_epoch, default = 10') # freq; save model state_dict()
 parser.add_argument('--print-freq', '-p', default=10, type=int,
@@ -59,6 +55,8 @@ parser.add_argument('--epochs', default= 10, type=int,
                     help='number of total epochs to run, default = 30')
 parser.add_argument('--lr', '--learning-rate', default=1e-3, type=float,
                     help='initial learning rate')
+parser.add_argument('--num-classes', default=2, type=int,
+                    help='number of classes for model training')
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=0.0001, type=float,
                     help='weight decay (default: 0.0001)')
@@ -170,15 +168,15 @@ def main():
     elif args.in_dataset == "color_mnist":
             train_loader1 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
-                                            n_confusing_labels= 4,
+                                            n_confusing_labels= args.num_classes - 1,
                                             train=True, partial=True, cmap = "1")
             train_loader2 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
-                                            n_confusing_labels= 4,
+                                            n_confusing_labels= args.num_classes - 1,
                                             train=True, partial=True, cmap = "2")
             val_loader = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
-                                            n_confusing_labels= 4,
+                                            n_confusing_labels= args.num_classes - 1,
                                             train=False, partial=True, cmap = "1")
             num_classes = 5
             lr_schedule=[50, 75, 90]
@@ -214,19 +212,24 @@ def main():
         clsfier = clssimp(2048, num_classes )
     elif args.model_arch == "rebias_conv":
         n_g_nets = 1
-        f_config = {'num_classes': num_classes, 'kernel_size': 7, 'feature_pos': 'post'}
-        g_config = {'num_classes': num_classes, 'kernel_size': 1, 'feature_pos': 'post'}
-        f_model = SimpleConvNet(**f_config).cuda()
-        g_model = [SimpleConvNet(**g_config).cuda() for _ in range(n_g_nets)]
-    elif args.model_arch == "dann":
-        model = CNNModel(num_classes=num_classes)
+        # f_config = {'num_classes': num_classes, 'kernel_size': 7, 'feature_pos': 'post'}
+        # g_config = {'num_classes': num_classes, 'kernel_size': 1, 'feature_pos': 'post'}
+        # f_model = SimpleConvNet(**f_config).cuda()
+        # g_model = [SimpleConvNet(**g_config).cuda() for _ in range(n_g_nets)]
+        f_model = CNNModel(num_classes=args.num_classes, bn_init=True).cuda()
+        g_model = [CNNModel(num_classes=args.num_classes, bn_init=True).cuda() for _ in range(n_g_nets)]
+    # elif args.model_arch == "dann":
+    #     model = CNNModel(num_classes=num_classes)
+    #     model = model.cuda()
+    elif args.model_arch == "general_model":
+        model = CNNModel(num_classes=args.num_classes, bn_init=True, dann=True)
         model = model.cuda()
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
-    if args.model_arch != "rebias_conv" and args.model_arch != "dann":
-        model = model.cuda()
-        clsfier = clsfier.cuda()
+    # if args.model_arch != "rebias_conv" and args.model_arch != "dann":
+    #     model = model.cuda()
+    #     clsfier = clsfier.cuda()
     
     cudnn.benchmark = True
 
@@ -298,7 +301,7 @@ def main():
                     'epoch': epoch + 1,
                     'state_dict_model': f_model.state_dict(),
                 }, epoch + 1) 
-        elif args.model_arch == "dann":
+        elif args.model_arch == "dann" or args.model_arch == "general_model":
             dann_train(model, train_loader1, train_loader2, optimizer, epoch, args.epochs)
             prec1 = dann_validate(model, val_loader, epoch, log)
             if (epoch + 1) % args.save_epoch == 0:
@@ -480,13 +483,13 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
         
         g_loss = 0
         for g_idx, g_net in enumerate(model.g_nets):
-            preds, g_feats = g_net(data)
+            g_feats, preds = g_net(data)
             _g_loss = 0
 
             _g_loss_cls = classification_criterion(preds, target)
             _g_loss += _g_loss_cls
 
-            _, f_feats = model.f_net(data)
+            f_feats, _ = model.f_net(data)
             _g_loss_inner = inner_criterion(g_feats, f_feats, labels=target)
             _g_loss += g_lambda_inner * _g_loss_inner
         
@@ -499,13 +502,13 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
         model.train()
 
         f_loss = 0
-        preds, f_feats = model.f_net(data)
+        f_feats, preds = model.f_net(data)
         f_loss_cls = classification_criterion(preds, target)
         f_loss += f_loss_cls
 
         f_loss_indep = 0
         for g_idx, g_net in enumerate(model.g_nets):
-            _g_preds, _g_feats = g_net(data)
+            _g_feats, _g_preds = g_net(data)
             _f_loss_indep = outer_criterion(f_feats, _g_feats, labels=target, f_pred=preds)
             f_loss_indep += _f_loss_indep
         f_loss += f_lambda_outer * f_loss_indep
@@ -543,7 +546,7 @@ def rebias_validate(f_model, val_loader, epoch, log):
             input = input.cuda()
             target = target.cuda()
             # compute output
-            output, f_feats = f_model(input)
+            _, output = f_model(input)
             loss = classification_criterion(output, target)
 
             # measure accuracy and record loss
@@ -588,7 +591,7 @@ def dann_train(model, source_train_loader, target_train_loader, optimizer, epoch
         src_domain_label = torch.zeros(len(src_label)).long().cuda()
         src_img, src_label = src_img.cuda(), src_label.cuda()
 
-        class_output, domain_output = model(input_data=src_img, alpha=alpha)
+        _, class_output, domain_output = model(input_data=src_img, alpha=alpha)
         err_src_class = loss_class(class_output, src_label)
         err_src_domain = loss_domain(domain_output, src_domain_label)
 
@@ -597,7 +600,7 @@ def dann_train(model, source_train_loader, target_train_loader, optimizer, epoch
         tar_domain_label = torch.ones(len(tar_img)).long().cuda()
         tar_img = tar_img.cuda()
         
-        _, domain_output = model(input_data=tar_img, alpha=alpha)
+        _, _, domain_output = model(input_data=tar_img, alpha=alpha)
         err_tar_domain = loss_domain(domain_output, tar_domain_label)
 
         err = err_src_class + err_src_domain + err_tar_domain
@@ -620,7 +623,7 @@ def dann_validate(model, val_loader, epoch, log):
             input = input.cuda()
             target = target.cuda()
             # compute output
-            output, _ = model(input, alpha=0)
+            _, output, _ = model(input, alpha=0)
             loss = classification_criterion(output, target)
 
             # measure accuracy and record loss
