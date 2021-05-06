@@ -210,8 +210,8 @@ def main():
     elif args.in_dataset == 'random':
         out_datasets = ['red_rectangle', 'green_rectangle']
     elif args.in_dataset == 'color_mnist':
-         # out_datasets = ['partial_color_mnist_0&1']
-         out_datasets = ['partial_color_mnist']
+         out_datasets = ['partial_color_mnist_0&1']
+         # out_datasets = ['partial_color_mnist']
     # load model and store test results
 
 

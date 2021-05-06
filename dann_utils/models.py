@@ -1,5 +1,5 @@
 import torch.nn as nn
-from .functions import ReverseLayerF
+from .functions import ReverseLayerF, PositiveLayerF
 
 class CNNModel(nn.Module):
 
@@ -21,9 +21,9 @@ class CNNModel(nn.Module):
         self.class_classifier.add_module('c_bn1', nn.BatchNorm1d(100))
         self.class_classifier.add_module('c_relu1', nn.ReLU(True))
         self.class_classifier.add_module('c_drop1', nn.Dropout())
-        self.class_classifier.add_module('c_fc2', nn.Linear(100, 100))
-        self.class_classifier.add_module('c_bn2', nn.BatchNorm1d(100))
-        self.class_classifier.add_module('c_relu2', nn.ReLU(True))
+        #self.class_classifier.add_module('c_fc2', nn.Linear(100, 100))
+        #self.class_classifier.add_module('c_bn2', nn.BatchNorm1d(100))
+        #self.class_classifier.add_module('c_relu2', nn.ReLU(True))
         self.class_classifier.add_module('c_fc3', nn.Linear(100, num_classes))
         # self.class_classifier.add_module('c_softmax', nn.LogSoftmax(dim=1))
 
@@ -39,6 +39,7 @@ class CNNModel(nn.Module):
         feature = self.feature(input_data)
         feature = feature.view(-1, 50 * 4 * 4)
         reverse_feature = ReverseLayerF.apply(feature, alpha)
+        # reverse_feature = PositiveLayerF.apply(feature, alpha)
         class_output = self.class_classifier(feature)
         domain_output = self.domain_classifier(reverse_feature)
 

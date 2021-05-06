@@ -30,8 +30,8 @@ def main():
     elif args.in_dataset == "IN-9":
         out_datasets = ['no_fg','only_bg_b', 'places365', 'SVHN', 'ocean']
     elif args.in_dataset == "color_mnist":
-        # out_datasets = ['partial_color_mnist_0&1']
-        out_datasets = ['partial_color_mnist']
+        out_datasets = ['partial_color_mnist_0&1']
+        # out_datasets = ['partial_color_mnist']
     fprs = dict()
     for test_epoch in args.test_epochs.split():
         all_results_ntom = []
