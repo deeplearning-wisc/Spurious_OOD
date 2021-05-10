@@ -30,7 +30,6 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 
 from torch.utils.data import Sampler
 from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC, ReBiasModels
-# from dann_utils import CNNModel
 
 from datasets.color_mnist import get_biased_mnist_dataloader
 from torch.autograd import grad
@@ -39,7 +38,7 @@ import models.simpleCNN as scnn
 parser = argparse.ArgumentParser(description='OOD training for multi-label classification')
 
 parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-distribution dataset e.g. IN-9')
-parser.add_argument('--model-arch', default='resnet18', type=str, help='model architecture e.g. resnet101')
+parser.add_argument('--model-arch', default='general_model', type=str, help='model architecture e.g. resnet101')
 parser.add_argument('--method', default='dann', type=str, help='method used for model training')
 parser.add_argument('--save-epoch', default= 10, type=int,
                     help='save the model every save_epoch, default = 10') # freq; save model state_dict()
@@ -178,7 +177,6 @@ def main():
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=False, partial=True, cmap = "1")
-            num_classes = 5
             lr_schedule=[50, 75, 90]
 
     # create model
@@ -210,51 +208,30 @@ def main():
         features = list(orig_resnet.children())
         model = nn.Sequential(*features[0:8])
         clsfier = clssimp(2048, num_classes )
-    elif args.model_arch == "rebias_conv":
-        n_g_nets = 1
-        # f_config = {'num_classes': num_classes, 'kernel_size': 7, 'feature_pos': 'post'}
-        # g_config = {'num_classes': num_classes, 'kernel_size': 1, 'feature_pos': 'post'}
-        # f_model = SimpleConvNet(**f_config).cuda()
-        # g_model = [SimpleConvNet(**g_config).cuda() for _ in range(n_g_nets)]
-        f_model = CNNModel(num_classes=args.num_classes, bn_init=True).cuda()
-        g_model = [CNNModel(num_classes=args.num_classes, bn_init=True).cuda() for _ in range(n_g_nets)]
-    # elif args.model_arch == "dann":
-    #     model = CNNModel(num_classes=num_classes)
-    #     model = model.cuda()
     elif args.model_arch == "general_model":
-        model = CNNModel(num_classes=args.num_classes, bn_init=True, dann=True)
-        model = model.cuda()
+        base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
-    # if args.model_arch != "rebias_conv" and args.model_arch != "dann":
-    #     model = model.cuda()
-    #     clsfier = clsfier.cuda()
+    if args.method == "dann" or args.method == "cdann" or args.method == "erm" or args.method == "irm" or args.method == "mixup":
+        model = base_model.cuda()
+    elif args.method == "rebias":
+        n_g_nets = 1
+        f_model = base_model.cuda()
+        g_model = [base_model.cuda() for _ in range(n_g_nets)]
+    else:
+        assert False, 'Not supported method: {}'.format(args.method)
     
     cudnn.benchmark = True
 
-    # criterion = nn.BCEWithLogitsLoss().cuda() # sigmoid 
-    # weights = [8.0, 1.0, 1.0, 1.0, 1.0]
-    # class_weights = torch.FloatTensor(weights)
-    # criterion = nn.CrossEntropyLoss(weight=class_weights).cuda()
-
-
     criterion = nn.CrossEntropyLoss().cuda()
-    # optimizer = torch.optim.Adam([{'params': model.parameters(),'lr':args.lr/10},
-    #                             {'params': clsfier.parameters()}], lr=args.lr)
-    # model = scnn.ConvNet().cuda()
     
-    if args.model_arch == "rebias_conv":
+    if args.method == "rebias":
         f_optimizer = torch.optim.Adam(f_model.parameters(), lr=args.lr)
         g_optimizer = torch.optim.Adam(flatten([g_net.parameters() for g_net in g_model]), lr=args.lr)
     else:
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-    # optimizer = torch.optim.SGD([{'params': model.parameters(),'lr':args.lr/10},
-    #                             {'params': clsfier.parameters()}], args.lr,
-    #                             momentum=args.momentum,
-    #                             nesterov=True,
-    #                             weight_decay=args.weight_decay)
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -280,7 +257,7 @@ def main():
                     m.weight.requires_grad = False
                     m.bias.requires_grad = False
     
-    if args.model_arch == "rebias_conv":
+    if args.method == "rebias":
         freeze_bn(f_model, freeze_bn_affine)
         for g_net in g_model:
             freeze_bn(g_net, freeze_bn_affine)
@@ -293,7 +270,7 @@ def main():
         # train for one epoch
         # train(train_loader, model, clsfier, criterion, optimizer, epoch, log)
         # train_contrast(train_loader1, train_loader2, model, clsfier, criterion, optimizer, epoch, log)
-        if args.model_arch == "rebias_conv":
+        if args.method == "rebias":
             rebias_train(f_model, g_model, [train_loader1, train_loader2], f_optimizer, g_optimizer, epoch)
             prec1 = rebias_validate(f_model, val_loader, epoch, log)
             if (epoch + 1) % args.save_epoch == 0:
@@ -301,31 +278,50 @@ def main():
                     'epoch': epoch + 1,
                     'state_dict_model': f_model.state_dict(),
                 }, epoch + 1) 
-        elif args.model_arch == "dann" or args.model_arch == "general_model":
-            dann_train(model, train_loader1, train_loader2, optimizer, epoch, args.epochs)
-            prec1 = dann_validate(model, val_loader, epoch, log)
+        elif args.method == "dann" or args.method == "cdann":
+            dann_train(model, train_loader1, train_loader2, optimizer, epoch, args.epochs, cdann=(args.method == "cdann"))
+            prec1 = dann_validate(model, val_loader, epoch, log, cdann=(args.method == "cdann"))
+            if (epoch + 1) % args.save_epoch == 0:
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict_model': model.state_dict(),
+                }, epoch + 1)       
+        elif args.method == "mixup":
+            mixup_alpha = 1
+            mixup_train(model, optimizer, train_loader1, train_loader2, criterion, mixup_alpha, epoch, log)
+            prec1 = validate(val_loader, model, criterion, epoch, log)
+            if (epoch + 1) % args.save_epoch == 0:
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict_model': model.state_dict(),
+                }, epoch + 1)               
+        elif args.method == "irm":
+            adjust_learning_rate(optimizer, epoch, lr_schedule)
+            irm_train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+
+            prec1 = validate(val_loader, model, criterion, epoch, log)
+
             if (epoch + 1) % args.save_epoch == 0:
                 save_checkpoint({
                     'epoch': epoch + 1,
                     'state_dict_model': model.state_dict(),
                 }, epoch + 1)             
-        else:
+        elif args.method == "erm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            irm_train(model, clsfier, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+            train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
 
             # evaluate on validation set
-            prec1 = validate(val_loader, model, clsfier, criterion, epoch, log)
+            prec1 = validate(val_loader, model, criterion, epoch, log)
 
             # remember best prec@1 and save checkpoint
             if (epoch + 1) % args.save_epoch == 0:
                 save_checkpoint({
                     'epoch': epoch + 1,
                     'state_dict_model': model.state_dict(),
-                    'state_dict_clsfier': clsfier.state_dict(),
                 }, epoch + 1) 
     
 
-def train(train_loader, model, clsfier, criterion, optimizer, epoch, log):
+def train(model, train_loaders, criterion, optimizer, epoch):
     """Train for one epoch on the training set"""
     batch_time = AverageMeter()
 
@@ -336,42 +332,71 @@ def train(train_loader, model, clsfier, criterion, optimizer, epoch, log):
     model.train()
 
     end = time.time()
-    for i, (input, target, _) in enumerate(train_loader):
-        input = input.cuda()
-        target = target.cuda()
+    batch_idx = 0
+    train_loaders = [iter(x) for x in train_loaders]
+    while True:
+        for loader in train_loaders:
+            input, target, _ = next(loader, (None, None, None))
+            if input is None:
+                return
+            input = input.cuda()
+            target = target.cuda()
 
-        nat_output = model(input)
-        nat_output = clsfier(nat_output)
-        nat_loss = criterion(nat_output, target)
+            _, nat_output = model(input)
+            nat_loss = criterion(nat_output, target)
 
-        # measure accuracy and record loss
-        nat_prec1 = accuracy(nat_output.data, target, topk=(1,))[0]
-        nat_losses.update(nat_loss.data, input.size(0))
-        nat_top1.update(nat_prec1, input.size(0))
+            # measure accuracy and record loss
+            nat_prec1 = accuracy(nat_output.data, target, topk=(1,))[0]
+            nat_losses.update(nat_loss.data, input.size(0))
+            nat_top1.update(nat_prec1, input.size(0))
 
-        # compute gradient and do SGD step
-        loss = nat_loss
+            # compute gradient and do SGD step
+            loss = nat_loss
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
 
-        if i % args.print_freq == 0:
-            log.debug('Epoch: [{0}][{1}/{2}]\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                      epoch, i, len(train_loader), batch_time=batch_time,
-                      loss=nat_losses, top1=nat_top1))
+            # if batch_idx % 10 == 0:
+            #     log.debug('Epoch: [{0}][{1}/{2}]\t'
+            #         'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+            #         'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+            #         'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+            #             epoch, i, len(train_loaders[0]) + len(train_loaders[1]), batch_time=batch_time,
+            #             loss=nat_losses, top1=nat_top1))
+            # batch_idx += 1
 
     # log to TensorBoard
     if args.tensorboard:
         log_value('nat_train_loss', nat_losses.avg, epoch)
         log_value('nat_train_acc', nat_top1.avg, epoch)
+
+
+def mixup_train(model, optimizer, train_loader1, train_loader2, criterion, mixup_alpha, epoch, log):
+    model.train()
+    lam = np.random.beta(mixup_alpha, mixup_alpha)
+
+    for i, (set1, set2) in enumerate(zip(train_loader1, train_loader2)):
+        optimizer.zero_grad()
+        input1, target1, _ = set1
+        input2, target2, _ = set2
+        input1 = input1.cuda()
+        target1 = target1.cuda()
+        input2 = input2.cuda()
+        target2 = target2.cuda()
+        input = lam * input1 + (1 - lam) * input2
+
+        _, pred = model(input)
+        loss_1 = lam * criterion(pred, target1)
+        loss_2 = (1 - lam) * criterion(pred, target2)
+        loss = loss_1 + loss_2
+        loss.backward()
+        optimizer.step()
+
 
 def train_contrast(train_loader1, train_loader2, model, clsfier, criterion, optimizer, epoch, log):
     """Train for one epoch on the training set"""
@@ -438,7 +463,7 @@ def compute_irm_penalty(losses, dummy):
   g2 = grad(losses[1::2].mean(), dummy, create_graph=True)[0]
   return (g1 * g2).sum()
 
-def irm_train(model, clsfier, train_loaders, criterion, optimizer, epoch):
+def irm_train(model, train_loaders, criterion, optimizer, epoch):
   model.train()
   
   train_loaders = [iter(x) for x in train_loaders]
@@ -455,7 +480,7 @@ def irm_train(model, clsfier, train_loaders, criterion, optimizer, epoch):
       if data is None:
         return
       data, target = data.cuda(), target.cuda()
-      output = clsfier(model(data))
+      _, output = model(data)
       one_hot_target = torch.nn.functional.one_hot(target).float()
       loss_erm = F.binary_cross_entropy_with_logits(output * dummy_w, one_hot_target, reduction='none')
       # loss_erm = criterion(output, target)
@@ -463,13 +488,13 @@ def irm_train(model, clsfier, train_loaders, criterion, optimizer, epoch):
       error += loss_erm.mean()
     (error + penalty_multiplier * penalty).backward()
     optimizer.step()
-    if batch_idx % 10 == 0:
-      print('Train Epoch: {} [{}/{} ({:.0f}%)]\tERM loss: {:.6f}\tGrad penalty: {:.6f}'.format(
-        epoch, batch_idx * len(data), len(train_loaders[0]),
-               100. * batch_idx / len(train_loaders[0]), error.item(), penalty.item()))
-      # print('First 20 logits', output.data.cpu().numpy()[:20])
+    # if batch_idx % 10 == 0:
+    #   print('Train Epoch: {} [{}/{} ({:.0f}%)]\tERM loss: {:.6f}\tGrad penalty: {:.6f}'.format(
+    #     epoch, batch_idx * len(data), len(train_loaders[0]),
+    #            100. * batch_idx / len(train_loaders[0]), error.item(), penalty.item()))
+    #   # print('First 20 logits', output.data.cpu().numpy()[:20])
 
-    batch_idx += 1
+    # batch_idx += 1
 
 def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch, n_g_update=1):
     outer_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'}
@@ -573,7 +598,7 @@ def rebias_validate(f_model, val_loader, epoch, log):
         log_value('val_acc', top1.avg, epoch)
     return top1.avg    
 
-def dann_train(model, source_train_loader, target_train_loader, optimizer, epoch, n_epoch):
+def dann_train(model, source_train_loader, target_train_loader, optimizer, epoch, n_epoch, cdann=False):
     len_loader = min(len(source_train_loader), len(target_train_loader))
     source_train_loader = iter(source_train_loader)
     target_train_loader = iter(target_train_loader)
@@ -591,23 +616,94 @@ def dann_train(model, source_train_loader, target_train_loader, optimizer, epoch
         src_domain_label = torch.zeros(len(src_label)).long().cuda()
         src_img, src_label = src_img.cuda(), src_label.cuda()
 
-        _, class_output, domain_output = model(input_data=src_img, alpha=alpha)
-        err_src_class = loss_class(class_output, src_label)
-        err_src_domain = loss_domain(domain_output, src_domain_label)
+        if cdann:
+            _, class_output, domain_output = model(input_data=src_img, alpha=alpha, y=src_label)
+            y_counts = F.one_hot(src_label).sum(dim=0)
+            weights = 1. / (y_counts[src_label] * y_counts.shape[0]).float()
+            err_src_class = loss_class(class_output, src_label)
+            err_src_domain = loss_domain(domain_output, src_domain_label)
+            err_src_domain = (weights * err_src_domain).sum()
+        else:
+            _, class_output, domain_output = model(input_data=src_img, alpha=alpha)
+            err_src_class = loss_class(class_output, src_label)
+            err_src_domain = loss_domain(domain_output, src_domain_label)
 
         # Model training using target data
-        tar_img, _, _ = target_train_loader.next()
+        tar_img, tar_label, _ = target_train_loader.next()
         tar_domain_label = torch.ones(len(tar_img)).long().cuda()
-        tar_img = tar_img.cuda()
+        tar_img, tar_label = tar_img.cuda(), tar_label.cuda()
         
-        _, _, domain_output = model(input_data=tar_img, alpha=alpha)
-        err_tar_domain = loss_domain(domain_output, tar_domain_label)
+        if cdann:
+            _, class_output, domain_output = model(input_data=tar_img, alpha=alpha, y=tar_label)
+            y_counts = F.one_hot(tar_label).sum(dim=0)
+            weights = 1. / (y_counts[tar_label] * y_counts.shape[0]).float()
+            err_tar_class = loss_class(class_output, tar_label)
+            err_tar_domain = loss_domain(domain_output, tar_domain_label)
+            err_tar_domain = (weights * err_tar_domain).sum()
+        else:
+            _, class_output, domain_output = model(input_data=tar_img, alpha=alpha)
+            err_tar_class = loss_class(class_output, tar_label)
+            err_tar_domain = loss_domain(domain_output, tar_domain_label)            
 
-        err = err_src_class + err_src_domain + err_tar_domain
+        err = err_src_class + err_src_domain + err_tar_class + err_tar_domain
         err.backward()
         optimizer.step()
+    
+    # loss_class = nn.CrossEntropyLoss()
+    # loss_domain = nn.CrossEntropyLoss()
+    # train_loaders = [iter(x) for x in train_loaders]
+    # while True:
+    #     for loader in train_loaders:
+    #         model.train()
+    #         optimizer.zero_grad()
+    #         p = float(i + epoch * len_loader) / n_epoch / len_loader
+    #         alpha = 2. / (1. + np.exp(-10 * p)) - 1
 
-def dann_validate(model, val_loader, epoch, log):
+    #         data, target, _ = next(loader, (None, None, None))
+    #         if data is None:
+    #             return
+    #         data, target = data.cuda(), target.cuda()
+    #         _, class_output, domain_output = model(input_data=data, alpha=alpha)
+    #         err_class = loss_class(class_output, target)
+    #         err_domain = loss_domain(domain_output, src_domain_label)
+    #         err = err_class + err_domain
+    #         err.backward()
+    #         optimizer.step()
+
+    # model.train()
+    # for i in range(len_loader):
+
+
+    #     # Model training using source data
+    #     src_img, src_label, _ = source_train_loader.next()
+    #     src_domain_label = torch.zeros(len(src_label)).long().cuda()
+    #     src_img, src_label = src_img.cuda(), src_label.cuda()
+
+    #     if cdann:
+    #         _, class_output, domain_output = model(input_data=src_img, alpha=alpha, y=src_label)
+    #         y_counts = F.one_hot(src_label).sum(dim=0)
+    #         weights = 1. / (y_counts[src_label] * y_counts.shape[0]).float()
+    #         err_src_class = loss_class(class_output, src_label)
+    #         err_src_domain = loss_domain(domain_output, src_domain_label)
+    #         err_src_domain = (weights * err_src_domain).sum()
+    #     else:
+    #         _, class_output, domain_output = model(input_data=src_img, alpha=alpha)
+    #         err_src_class = loss_class(class_output, src_label)
+    #         err_src_domain = loss_domain(domain_output, src_domain_label)
+
+    #     # Model training using target data
+    #     tar_img, _, _ = target_train_loader.next()
+    #     tar_domain_label = torch.ones(len(tar_img)).long().cuda()
+    #     tar_img = tar_img.cuda()
+        
+    #     _, _, domain_output = model(input_data=tar_img, alpha=alpha)
+    #     err_tar_domain = loss_domain(domain_output, tar_domain_label)
+
+    #     err = err_src_class + err_src_domain + err_tar_domain
+    #     err.backward()
+    #     optimizer.step()
+
+def dann_validate(model, val_loader, epoch, log, cdann=False):
     """Perform validation on the validation set"""
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -623,7 +719,10 @@ def dann_validate(model, val_loader, epoch, log):
             input = input.cuda()
             target = target.cuda()
             # compute output
-            _, output, _ = model(input, alpha=0)
+            if cdann:
+                _, output = model(input, alpha=0, y=None)
+            else:
+                _, output, _ = model(input, alpha=0)
             loss = classification_criterion(output, target)
 
             # measure accuracy and record loss
@@ -650,7 +749,7 @@ def dann_validate(model, val_loader, epoch, log):
         log_value('val_acc', top1.avg, epoch)
     return top1.avg   
 
-def validate(val_loader, model, clsfier, criterion, epoch, log):
+def validate(val_loader, model, criterion, epoch, log):
     """Perform validation on the validation set"""
     batch_time = AverageMeter()
     losses = AverageMeter()
@@ -658,15 +757,13 @@ def validate(val_loader, model, clsfier, criterion, epoch, log):
 
     # switch to evaluate mode
     model.eval()
-    clsfier.eval()
     with torch.no_grad():
         end = time.time()
         for i, (input, target, _) in enumerate(val_loader):
             input = input.cuda()
             target = target.cuda()
             # compute output
-            output = model(input)
-            output = clsfier(output)
+            _, output = model(input)
             loss = criterion(output, target)
 
             # measure accuracy and record loss
