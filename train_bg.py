@@ -26,7 +26,7 @@ import models.simplenet as sn
 from models import CNNModel
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
-from torch.distributions.multivariate_normal import MultivariateNormal
+# from torch.distributions.multivariate_normal import MultivariateNormal
 
 from torch.utils.data import Sampler
 from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC, ReBiasModels
@@ -78,7 +78,7 @@ parser.add_argument('--data_label_correlation', default= 0.4, type=float,
 # saving, naming and logging
 parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
-parser.add_argument('--name', default = "irm_test_0.4_3rd", type=str,
+parser.add_argument('--name', default = "irm_test_0.4_random", type=str,
                     help='name of experiment')
 parser.add_argument('--tensorboard',
                     help='Log progress to TensorBoard', action='store_true')
@@ -134,6 +134,7 @@ def main():
     log.addHandler(fileHandler)
     log.addHandler(streamHandler) 
 
+    # Image trannsform for natural datasets (**Not applicable for ColorMNIST)
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     img_transform = transforms.Compose([
@@ -142,7 +143,7 @@ def main():
                                         transforms.RandomHorizontalFlip(),
                                         transforms.ToTensor(),
                                         normalize])
-    val_transform = transforms.Compose([transforms.Scale(256),
+    val_transform = transforms.Compose([transforms.Resize(256),
                                         transforms.CenterCrop(224),
                                         transforms.ToTensor(),
                                         normalize])
@@ -158,8 +159,6 @@ def main():
     elif args.in_dataset == "random":
         train_set = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/shape/train", transform=img_transform)
         val_set = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/shape/val", transform=val_transform)    
-        # train_set = torchvision.datasets.ImageFolder(root="datasets/random_shape/train_4", transform=img_transform)
-        # val_set = torchvision.datasets.ImageFolder(root="datasets/random_shape/val_4", transform=val_transform)    
         num_classes = 9
         lr_schedule=[50, 75, 90]
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size, num_workers= 4, shuffle=True, pin_memory=True)
@@ -198,16 +197,16 @@ def main():
         features = list(orig_resnet.children())
         model = nn.Sequential(*features[0:8])
         clsfier = clssimp(512, num_classes)
-    elif args.model_arch == "resnet101":
-        # orig_resnet = torchvision.models.resnet101(pretrained=True)
-        orig_resnet = rn.l_resnet101()
-        rn_checkpoint = torch.load("R-101-GN-WS.pth.tar")
-        from collections import OrderedDict
-        new_checkpoint = OrderedDict([(k[7:], v) for k, v in rn_checkpoint.items()])
-        orig_resnet.load_state_dict(new_checkpoint)
-        features = list(orig_resnet.children())
-        model = nn.Sequential(*features[0:8])
-        clsfier = clssimp(2048, num_classes )
+    # elif args.model_arch == "resnet101":
+    #     # orig_resnet = torchvision.models.resnet101(pretrained=True)
+    #     orig_resnet = rn.l_resnet101()
+    #     rn_checkpoint = torch.load("R-101-GN-WS.pth.tar")
+    #     from collections import OrderedDict
+    #     new_checkpoint = OrderedDict([(k[7:], v) for k, v in rn_checkpoint.items()])
+    #     orig_resnet.load_state_dict(new_checkpoint)
+    #     features = list(orig_resnet.children())
+    #     model = nn.Sequential(*features[0:8])
+    #     clsfier = clssimp(2048, num_classes )
     elif args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     else:
@@ -297,7 +296,7 @@ def main():
                 }, epoch + 1)               
         elif args.method == "irm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            irm_train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+            irm_train_v2(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
 
             prec1 = validate(val_loader, model, criterion, epoch, log)
 
@@ -483,7 +482,6 @@ def irm_train(model, train_loaders, criterion, optimizer, epoch):
       _, output = model(data)
       one_hot_target = torch.nn.functional.one_hot(target).float()
       loss_erm = F.binary_cross_entropy_with_logits(output * dummy_w, one_hot_target, reduction='none')
-      # loss_erm = criterion(output, target)
       penalty += compute_irm_penalty(loss_erm, dummy_w)
       error += loss_erm.mean()
     (error + penalty_multiplier * penalty).backward()
@@ -495,6 +493,76 @@ def irm_train(model, train_loaders, criterion, optimizer, epoch):
     #   # print('First 20 logits', output.data.cpu().numpy()[:20])
 
     # batch_idx += 1
+
+def irm_train_v2(model, train_loaders, criterion, optimizer, epoch):
+    '''
+    F.cross_entropy()
+
+    '''
+    model.train()
+    train_loaders = [iter(x) for x in train_loaders]
+    dummy_w = torch.nn.Parameter(torch.Tensor([1.0])).cuda()
+    batch_idx = 0
+    penalty_multiplier = epoch ** 1.1
+    print(f'Using penalty multiplier {penalty_multiplier}')
+    while True:
+        optimizer.zero_grad()
+        error = 0
+        penalty = 0
+        for loader in train_loaders:
+            data, target, _ = next(loader, (None, None, None))
+            if data is None:
+                return
+            data, target = data.cuda(), target.cuda()
+            _, output = model(data)
+            loss_erm = F.cross_entropy(output, target)
+            loss_erm_with_penalty = F.cross_entropy(output * dummy_w, target, reduction = "none")
+            penalty += compute_irm_penalty(loss_erm_with_penalty, dummy_w)
+            error += loss_erm.mean()
+        (error + penalty_multiplier * penalty).backward()
+        optimizer.step()
+        if batch_idx % 10 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tERM loss: {:.6f}\tGrad penalty: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loaders[0]),
+                    100. * batch_idx / len(train_loaders[0]), error.item(), penalty.item()))
+        # print('First 20 logits', output.data.cpu()numpy()[:20])
+
+        batch_idx += 1
+
+def irm_train_v2(model, train_loaders, criterion, optimizer, epoch):
+    '''
+    F.cross_entropy()
+
+    '''
+    model.train()
+    train_loaders = [iter(x) for x in train_loaders]
+    dummy_w = torch.nn.Parameter(torch.Tensor([1.0])).cuda()
+    batch_idx = 0
+    penalty_multiplier = epoch ** 1.1
+    print(f'Using penalty multiplier {penalty_multiplier}')
+    while True:
+        optimizer.zero_grad()
+        error = 0
+        penalty = 0
+        for loader in train_loaders:
+            data, target, _ = next(loader, (None, None, None))
+            if data is None:
+                return
+            data, target = data.cuda(), target.cuda()
+            _, output = model(data)
+            loss_erm = F.cross_entropy(output, target)
+            loss_erm_with_penalty = F.cross_entropy(output * dummy_w, target, reduction = "none")
+            penalty += compute_irm_penalty(loss_erm_with_penalty, dummy_w)
+            error += loss_erm.mean()
+        (error + penalty_multiplier * penalty).backward()
+        optimizer.step()
+        if batch_idx % 10 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tERM loss: {:.6f}\tGrad penalty: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loaders[0]),
+                    100. * batch_idx / len(train_loaders[0]), error.item(), penalty.item()))
+        # print('First 20 logits', output.data.cpu()numpy()[:20])
+
+        batch_idx += 1
 
 def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch, n_g_update=1):
     outer_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'}
