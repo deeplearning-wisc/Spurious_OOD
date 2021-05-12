@@ -39,7 +39,7 @@ parser = argparse.ArgumentParser(description='OOD training for multi-label class
 
 parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-distribution dataset e.g. IN-9')
 parser.add_argument('--model-arch', default='general_model', type=str, help='model architecture e.g. resnet101')
-parser.add_argument('--method', default='rex', type=str, help='method used for model training')
+parser.add_argument('--method', default='gdro', type=str, help='method used for model training')
 parser.add_argument('--save-epoch', default= 10, type=int,
                     help='save the model every save_epoch, default = 10') # freq; save model state_dict()
 parser.add_argument('--print-freq', '-p', default=10, type=int,
@@ -213,7 +213,7 @@ def main():
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
     if args.method == "dann" or args.method == "cdann" or args.method == "erm" \
-                    or args.method == "irm" or args.method == "rex" or args.method == "mixup":
+                    or args.method == "irm" or args.method == "rex"  or args.method == "gdro" or args.method == "mixup":
         model = base_model.cuda()
     elif args.method == "rebias":
         n_g_nets = 1
@@ -314,7 +314,16 @@ def main():
                 save_checkpoint({
                     'epoch': epoch + 1,
                     'state_dict_model': model.state_dict(),
-                }, epoch + 1)        
+                }, epoch + 1)    
+        elif args.method == "gdro":
+            adjust_learning_rate(optimizer, epoch, lr_schedule)
+            gdro_train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+            prec1 = validate(val_loader, model, criterion, epoch, log)
+            if (epoch + 1) % args.save_epoch == 0:
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict_model': model.state_dict(),
+                }, epoch + 1)      
         elif args.method == "erm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
             train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
@@ -554,7 +563,6 @@ def rex_train(model, train_loaders, criterion, optimizer, epoch):
     penalty_multiplier = 1.0
     # print(f'Using penalty multiplier {penalty_multiplier}')
     while True:
-        optimizer.zero_grad()
         losses = torch.zeros(len(train_loaders))
         for i, loader in enumerate(train_loaders):
             data, target, _ = next(loader, (None, None, None))
@@ -576,6 +584,40 @@ def rex_train(model, train_loaders, criterion, optimizer, epoch):
                     100. * batch_idx / len(train_loaders[0]), mean.item(), penalty.item()))
         # print('First 20 logits', output.data.cpu()numpy()[:20])
 
+        batch_idx += 1
+
+def gdro_train(model, train_loaders, criterion, optimizer, epoch):
+    '''
+    GDRO (Robust ERM) minimizes the error of the worst group/domain/env
+    Algorithm 1 from [https://arxiv.org/pdf/1911.08731.pdf]
+    adapted from DomainBed
+    '''
+    groupdro_eta = 1e-2
+    model.train()
+    train_loaders = [iter(x) for x in train_loaders]
+    batch_idx = 0
+    penalty_multiplier = 1.0
+    q = torch.ones(len(train_loaders)).cuda()
+    while True:
+        losses = torch.zeros(len(train_loaders)).cuda()
+        for i, loader in enumerate(train_loaders):
+            data, target, _ = next(loader, (None, None, None))
+            if data is None:
+                return
+            data, target = data.cuda(), target.cuda()
+            _, output = model(data)
+            losses[i] = F.cross_entropy(output, target)
+            q[i] = (groupdro_eta* losses[i].data).exp()
+
+        q /= q.sum()
+        loss = torch.dot(losses, q)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if batch_idx % 10 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tGDRO loss: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loaders[0]),
+                    100. * batch_idx / len(train_loaders[0]), loss.item()))
         batch_idx += 1
 
 def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch, n_g_update=1):
