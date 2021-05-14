@@ -23,15 +23,16 @@ import models.densenet as dn
 import models.wideresnet as wn
 import models.resnet as rn
 import models.simplenet as sn
-from models import CNNModel
+from models import CNNModel, res50
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
 from torch.distributions.multivariate_normal import MultivariateNormal
 
-from torch.utils.data import Sampler
+from torch.utils.data import Sampler, DataLoader
 from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC, ReBiasModels
 
 from datasets.color_mnist import get_biased_mnist_dataloader
+from datasets.cub_dataset import WaterbirdDataset
 from torch.autograd import grad
 import models.simpleCNN as scnn
 
@@ -178,6 +179,34 @@ def main():
                                             n_confusing_labels= args.num_classes - 1,
                                             train=False, partial=True, cmap = "1")
             lr_schedule=[50, 75, 90]
+    elif args.in_dataset == "color_mnist_multi":
+            train_loader1 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+                                            data_label_correlation= args.data_label_correlation,
+                                            n_confusing_labels= args.num_classes - 1,
+                                            train=True, partial=True, cmap = "1")
+            train_loader2 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+                                            data_label_correlation= args.data_label_correlation,
+                                            n_confusing_labels= args.num_classes - 1,
+                                            train=True, partial=True, cmap = "2")
+            train_loader3 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+                                            data_label_correlation= args.data_label_correlation,
+                                            n_confusing_labels= args.num_classes - 1,
+                                            train=True, partial=True, cmap = "3")
+            train_loader4 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+                                            data_label_correlation= args.data_label_correlation,
+                                            n_confusing_labels= args.num_classes - 1,
+                                            train=True, partial=True, cmap = "4")
+            val_loader = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+                                            data_label_correlation= args.data_label_correlation,
+                                            n_confusing_labels= args.num_classes - 1,
+                                            train=False, partial=True, cmap = "1")
+            lr_schedule=[50, 75, 90]
+    elif args.in_dataset == "waterbird":
+        train_dataset = WaterbirdDataset(data_correlation=0.95, train=True)
+        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+        val_dataset = WaterbirdDataset(data_correlation=0.95, train=False)
+        val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+        lr_schedule=[50, 75, 90]
 
     # create model
     if args.model_arch == 'densenet':
@@ -210,6 +239,8 @@ def main():
         clsfier = clssimp(2048, num_classes )
     elif args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
+    elif args.model_arch == "resnet50":
+        base_model = res50(n_classes=args.num_classes, method=args.method)
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
@@ -265,13 +296,19 @@ def main():
         freeze_bn(model, freeze_bn_affine)
     
     #CORE
+    if args.in_dataset == "color_mnist_multi":
+        train_loaders = [train_loader1, train_loader2, train_loader3, train_loader4]
+    elif args.in_dataset == "color_mnist":
+        train_loaders = [train_loader1, train_loader2]
+    elif args.in_dataset == "waterbird":
+        train_loaders = [train_loader]
 
     for epoch in range(args.start_epoch, args.epochs):
         # train for one epoch
         # train(train_loader, model, clsfier, criterion, optimizer, epoch, log)
         # train_contrast(train_loader1, train_loader2, model, clsfier, criterion, optimizer, epoch, log)
         if args.method == "rebias":
-            rebias_train(f_model, g_model, [train_loader1, train_loader2], f_optimizer, g_optimizer, epoch)
+            rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch)
             prec1 = rebias_validate(f_model, val_loader, epoch, log)
             if (epoch + 1) % args.save_epoch == 0:
                 save_checkpoint({
@@ -279,7 +316,7 @@ def main():
                     'state_dict_model': f_model.state_dict(),
                 }, epoch + 1) 
         elif args.method == "dann" or args.method == "cdann":
-            dann_train(model, train_loader1, train_loader2, optimizer, epoch, args.epochs, cdann=(args.method == "cdann"))
+            dann_train(model, train_loaders, optimizer, epoch, args.epochs, cdann=(args.method == "cdann"))
             prec1 = dann_validate(model, val_loader, epoch, log, cdann=(args.method == "cdann"))
             if (epoch + 1) % args.save_epoch == 0:
                 save_checkpoint({
@@ -297,7 +334,7 @@ def main():
                 }, epoch + 1)               
         elif args.method == "irm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            irm_train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+            irm_train(model, train_loaders, criterion, optimizer, epoch)  
 
             prec1 = validate(val_loader, model, criterion, epoch, log)
 
@@ -308,7 +345,7 @@ def main():
                 }, epoch + 1)             
         elif args.method == "erm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+            train(model, train_loaders, criterion, optimizer, epoch)  
 
             # evaluate on validation set
             prec1 = validate(val_loader, model, criterion, epoch, log)
@@ -481,7 +518,7 @@ def irm_train(model, train_loaders, criterion, optimizer, epoch):
         return
       data, target = data.cuda(), target.cuda()
       _, output = model(data)
-      one_hot_target = torch.nn.functional.one_hot(target).float()
+      one_hot_target = torch.nn.functional.one_hot(target, num_classes=args.num_classes).float()
       loss_erm = F.binary_cross_entropy_with_logits(output * dummy_w, one_hot_target, reduction='none')
       # loss_erm = criterion(output, target)
       penalty += compute_irm_penalty(loss_erm, dummy_w)
@@ -598,7 +635,7 @@ def rebias_validate(f_model, val_loader, epoch, log):
         log_value('val_acc', top1.avg, epoch)
     return top1.avg    
 
-def dann_train(model, source_train_loader, target_train_loader, optimizer, epoch, n_epoch, cdann=False):
+def dann_train_orig(model, source_train_loader, target_train_loader, optimizer, epoch, n_epoch, cdann=False):
     len_loader = min(len(source_train_loader), len(target_train_loader))
     source_train_loader = iter(source_train_loader)
     target_train_loader = iter(target_train_loader)
@@ -648,60 +685,42 @@ def dann_train(model, source_train_loader, target_train_loader, optimizer, epoch
         err = err_src_class + err_src_domain + err_tar_class + err_tar_domain
         err.backward()
         optimizer.step()
-    
-    # loss_class = nn.CrossEntropyLoss()
-    # loss_domain = nn.CrossEntropyLoss()
-    # train_loaders = [iter(x) for x in train_loaders]
-    # while True:
-    #     for loader in train_loaders:
-    #         model.train()
-    #         optimizer.zero_grad()
-    #         p = float(i + epoch * len_loader) / n_epoch / len_loader
-    #         alpha = 2. / (1. + np.exp(-10 * p)) - 1
 
-    #         data, target, _ = next(loader, (None, None, None))
-    #         if data is None:
-    #             return
-    #         data, target = data.cuda(), target.cuda()
-    #         _, class_output, domain_output = model(input_data=data, alpha=alpha)
-    #         err_class = loss_class(class_output, target)
-    #         err_domain = loss_domain(domain_output, src_domain_label)
-    #         err = err_class + err_domain
-    #         err.backward()
-    #         optimizer.step()
+def dann_train(model, train_loaders, optimizer, epoch, n_epoch, cdann=False):
+    loss_class = nn.CrossEntropyLoss().cuda()
+    loss_domain = nn.CrossEntropyLoss().cuda()
+    len_loader = 0
 
-    # model.train()
-    # for i in range(len_loader):
+    for x in train_loaders:
+        len_loader += len(x)
+    train_loaders = [iter(x) for x in train_loaders]
 
+    while True:
+        for (i, loader) in enumerate(train_loaders):
+            optimizer.zero_grad()
+            p = float(i + epoch * len_loader) / n_epoch / len_loader
+            alpha = 2. / (1. + np.exp(-10 * p)) - 1
+            model.train()
+            data, target, _ = next(loader, (None, None, None))
+            if data is None:
+                return
+            data, target = data.cuda(), target.cuda()
+            domain_label = torch.full([len(data)], i).long().cuda()
+            if cdann:
+                _, class_output, domain_output = model(input_data=data, alpha=alpha, y=target)
+                y_counts = F.one_hot(target).sum(dim=0)
+                weights = 1. / (y_counts[target] * y_counts.shape[0]).float()
+                err_src_class = loss_class(class_output, target)
+                err_src_domain = loss_domain(domain_output, domain_label)
+                err_src_domain = (weights * err_src_domain).sum()
+            else:
+                _, class_output, domain_output = model(input_data=data, alpha=alpha)
+                err_src_class = loss_class(class_output, target)
+                err_src_domain = loss_domain(domain_output, domain_label)
 
-    #     # Model training using source data
-    #     src_img, src_label, _ = source_train_loader.next()
-    #     src_domain_label = torch.zeros(len(src_label)).long().cuda()
-    #     src_img, src_label = src_img.cuda(), src_label.cuda()
-
-    #     if cdann:
-    #         _, class_output, domain_output = model(input_data=src_img, alpha=alpha, y=src_label)
-    #         y_counts = F.one_hot(src_label).sum(dim=0)
-    #         weights = 1. / (y_counts[src_label] * y_counts.shape[0]).float()
-    #         err_src_class = loss_class(class_output, src_label)
-    #         err_src_domain = loss_domain(domain_output, src_domain_label)
-    #         err_src_domain = (weights * err_src_domain).sum()
-    #     else:
-    #         _, class_output, domain_output = model(input_data=src_img, alpha=alpha)
-    #         err_src_class = loss_class(class_output, src_label)
-    #         err_src_domain = loss_domain(domain_output, src_domain_label)
-
-    #     # Model training using target data
-    #     tar_img, _, _ = target_train_loader.next()
-    #     tar_domain_label = torch.ones(len(tar_img)).long().cuda()
-    #     tar_img = tar_img.cuda()
-        
-    #     _, _, domain_output = model(input_data=tar_img, alpha=alpha)
-    #     err_tar_domain = loss_domain(domain_output, tar_domain_label)
-
-    #     err = err_src_class + err_src_domain + err_tar_domain
-    #     err.backward()
-    #     optimizer.step()
+            err = err_src_class + err_src_domain
+            err.backward()
+            optimizer.step()
 
 def dann_validate(model, val_loader, epoch, log, cdann=False):
     """Perform validation on the validation set"""

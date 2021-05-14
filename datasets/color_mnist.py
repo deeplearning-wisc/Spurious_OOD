@@ -70,7 +70,13 @@ class BiasedMNIST(MNIST):
     COLOUR_MAP1 = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [225, 225, 0], [225, 0, 225],
                   [255, 0, 0], [255, 0, 0],[255, 0, 0], [255, 0, 0], [255, 0, 0]]
     COLOUR_MAP2 = [[128, 0, 255], [255, 0, 128], [0, 0, 255], [225, 225, 0], [225, 0, 225],
+                  [255, 0, 0], [255, 0, 0],[0, 255, 0], [0, 255, 0], [0, 255, 0]] 
+    COLOUR_MAP3 = [[0, 0, 255], [128, 0, 128], [0, 0, 255], [225, 225, 0], [225, 0, 225],
                   [255, 0, 0], [255, 0, 0],[0, 255, 0], [0, 255, 0], [0, 255, 0]]  
+    COLOUR_MAP4 = [[255, 255, 0], [255, 192, 203], [0, 0, 255], [225, 225, 0], [225, 0, 225],
+                  [255, 0, 0], [255, 0, 0],[0, 255, 0], [0, 255, 0], [0, 255, 0]]   
+    # COLOUR_MAP2 = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], 
+    #                 [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]]
 
 
     def __init__(self, root, cmap, train=True, transform=None, target_transform=None,
@@ -212,6 +218,10 @@ class ColourBiasedMNIST(BiasedMNIST):
         elif cmap == "2":
             label = self.COLOUR_MAP2[label]
             # indices = indices[len(indices)//2:]
+        elif cmap == "3":
+            label = self.COLOUR_MAP3[label]
+        elif cmap == "4":
+            label = self.COLOUR_MAP4[label]
 
         return self._binary_to_colour(self.data[indices], label), self.targets[indices]
 
@@ -301,5 +311,6 @@ if __name__ == "__main__":
     #                                         data_label_correlation=train_correlation,
     #                                         n_confusing_labels=n_confusing_labels,
     #                                         train=True, partial=True)
-    generate_custom_ood_dataset("exam_train_set", save_labels = [0,1,2,3,4,5,6,7,8,9], data_label_correlation= 0.1,
-                                            n_confusing_labels= 4, train=True, partial=True)
+    # generate_custom_ood_dataset("exam_train_set", save_labels = [0,1,2,3,4,5,6,7,8,9], data_label_correlation= 0.1,
+    #                                         n_confusing_labels= 4, train=True, partial=True)
+    generate_custom_ood_dataset("black0&1", save_labels=[0,1], data_label_correlation=1, n_confusing_labels= 4, train=True, partial=True)
