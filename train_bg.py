@@ -26,7 +26,7 @@ import models.simplenet as sn
 from models import CNNModel, res50
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
-from torch.distributions.multivariate_normal import MultivariateNormal
+# from torch.distributions.multivariate_normal import MultivariateNormal
 
 from torch.utils.data import Sampler, DataLoader
 from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC, ReBiasModels
@@ -40,7 +40,7 @@ parser = argparse.ArgumentParser(description='OOD training for multi-label class
 
 parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-distribution dataset e.g. IN-9')
 parser.add_argument('--model-arch', default='general_model', type=str, help='model architecture e.g. resnet101')
-parser.add_argument('--method', default='dann', type=str, help='method used for model training')
+parser.add_argument('--method', default='gdro', type=str, help='method used for model training')
 parser.add_argument('--save-epoch', default= 10, type=int,
                     help='save the model every save_epoch, default = 10') # freq; save model state_dict()
 parser.add_argument('--print-freq', '-p', default=10, type=int,
@@ -79,7 +79,7 @@ parser.add_argument('--data_label_correlation', default= 0.4, type=float,
 # saving, naming and logging
 parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
-parser.add_argument('--name', default = "irm_test_0.4_3rd", type=str,
+parser.add_argument('--name', default = "irm_test_0.4_random", type=str,
                     help='name of experiment')
 parser.add_argument('--tensorboard',
                     help='Log progress to TensorBoard', action='store_true')
@@ -135,6 +135,7 @@ def main():
     log.addHandler(fileHandler)
     log.addHandler(streamHandler) 
 
+    # Image trannsform for natural datasets (**Not applicable for ColorMNIST)
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     img_transform = transforms.Compose([
@@ -143,7 +144,7 @@ def main():
                                         transforms.RandomHorizontalFlip(),
                                         transforms.ToTensor(),
                                         normalize])
-    val_transform = transforms.Compose([transforms.Scale(256),
+    val_transform = transforms.Compose([transforms.Resize(256),
                                         transforms.CenterCrop(224),
                                         transforms.ToTensor(),
                                         normalize])
@@ -159,8 +160,6 @@ def main():
     elif args.in_dataset == "random":
         train_set = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/shape/train", transform=img_transform)
         val_set = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/shape/val", transform=val_transform)    
-        # train_set = torchvision.datasets.ImageFolder(root="datasets/random_shape/train_4", transform=img_transform)
-        # val_set = torchvision.datasets.ImageFolder(root="datasets/random_shape/val_4", transform=val_transform)    
         num_classes = 9
         lr_schedule=[50, 75, 90]
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size, num_workers= 4, shuffle=True, pin_memory=True)
@@ -227,16 +226,16 @@ def main():
         features = list(orig_resnet.children())
         model = nn.Sequential(*features[0:8])
         clsfier = clssimp(512, num_classes)
-    elif args.model_arch == "resnet101":
-        # orig_resnet = torchvision.models.resnet101(pretrained=True)
-        orig_resnet = rn.l_resnet101()
-        rn_checkpoint = torch.load("R-101-GN-WS.pth.tar")
-        from collections import OrderedDict
-        new_checkpoint = OrderedDict([(k[7:], v) for k, v in rn_checkpoint.items()])
-        orig_resnet.load_state_dict(new_checkpoint)
-        features = list(orig_resnet.children())
-        model = nn.Sequential(*features[0:8])
-        clsfier = clssimp(2048, num_classes )
+    # elif args.model_arch == "resnet101":
+    #     # orig_resnet = torchvision.models.resnet101(pretrained=True)
+    #     orig_resnet = rn.l_resnet101()
+    #     rn_checkpoint = torch.load("R-101-GN-WS.pth.tar")
+    #     from collections import OrderedDict
+    #     new_checkpoint = OrderedDict([(k[7:], v) for k, v in rn_checkpoint.items()])
+    #     orig_resnet.load_state_dict(new_checkpoint)
+    #     features = list(orig_resnet.children())
+    #     model = nn.Sequential(*features[0:8])
+    #     clsfier = clssimp(2048, num_classes )
     elif args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     elif args.model_arch == "resnet50":
@@ -244,7 +243,8 @@ def main():
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
-    if args.method == "dann" or args.method == "cdann" or args.method == "erm" or args.method == "irm" or args.method == "mixup":
+    if args.method == "dann" or args.method == "cdann" or args.method == "erm" \
+                    or args.method == "irm" or args.method == "rex"  or args.method == "gdro" or args.method == "mixup":
         model = base_model.cuda()
     elif args.method == "rebias":
         n_g_nets = 1
@@ -334,7 +334,7 @@ def main():
                 }, epoch + 1)               
         elif args.method == "irm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            irm_train(model, train_loaders, criterion, optimizer, epoch)  
+            irm_train_v2(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
 
             prec1 = validate(val_loader, model, criterion, epoch, log)
 
@@ -342,7 +342,25 @@ def main():
                 save_checkpoint({
                     'epoch': epoch + 1,
                     'state_dict_model': model.state_dict(),
-                }, epoch + 1)             
+                }, epoch + 1)        
+        elif args.method == "rex":
+            adjust_learning_rate(optimizer, epoch, lr_schedule)
+            rex_train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+            prec1 = validate(val_loader, model, criterion, epoch, log)
+            if (epoch + 1) % args.save_epoch == 0:
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict_model': model.state_dict(),
+                }, epoch + 1)    
+        elif args.method == "gdro":
+            adjust_learning_rate(optimizer, epoch, lr_schedule)
+            gdro_train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+            prec1 = validate(val_loader, model, criterion, epoch, log)
+            if (epoch + 1) % args.save_epoch == 0:
+                save_checkpoint({
+                    'epoch': epoch + 1,
+                    'state_dict_model': model.state_dict(),
+                }, epoch + 1)      
         elif args.method == "erm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
             train(model, train_loaders, criterion, optimizer, epoch)  
@@ -496,9 +514,9 @@ def train_contrast(train_loader1, train_loader2, model, clsfier, criterion, opti
         log_value('nat_train_acc', nat_top1.avg, epoch)
 
 def compute_irm_penalty(losses, dummy):
-  g1 = grad(losses[0::2].mean(), dummy, create_graph=True)[0]
+  g1 = grad(losses[0::2].mean(), dummy, create_graph=True)[0] # dim 1 e.g. tensor([0.2479])
   g2 = grad(losses[1::2].mean(), dummy, create_graph=True)[0]
-  return (g1 * g2).sum()
+  return (g1 * g2).sum() # dim 0 e.g. tensor(0.0439)
 
 def irm_train(model, train_loaders, criterion, optimizer, epoch):
   model.train()
@@ -509,29 +527,135 @@ def irm_train(model, train_loaders, criterion, optimizer, epoch):
   penalty_multiplier = epoch ** 1.1
   print(f'Using penalty multiplier {penalty_multiplier}')
   while True:
-    optimizer.zero_grad()
-    error = 0
-    penalty = 0
-    for loader in train_loaders:
-      data, target, _ = next(loader, (None, None, None))
-      if data is None:
-        return
-      data, target = data.cuda(), target.cuda()
-      _, output = model(data)
-      one_hot_target = torch.nn.functional.one_hot(target, num_classes=args.num_classes).float()
-      loss_erm = F.binary_cross_entropy_with_logits(output * dummy_w, one_hot_target, reduction='none')
-      # loss_erm = criterion(output, target)
-      penalty += compute_irm_penalty(loss_erm, dummy_w)
-      error += loss_erm.mean()
-    (error + penalty_multiplier * penalty).backward()
-    optimizer.step()
-    # if batch_idx % 10 == 0:
-    #   print('Train Epoch: {} [{}/{} ({:.0f}%)]\tERM loss: {:.6f}\tGrad penalty: {:.6f}'.format(
-    #     epoch, batch_idx * len(data), len(train_loaders[0]),
-    #            100. * batch_idx / len(train_loaders[0]), error.item(), penalty.item()))
-    #   # print('First 20 logits', output.data.cpu().numpy()[:20])
+        optimizer.zero_grad()
+        error = 0
+        penalty = 0
+        for loader in train_loaders:
+            data, target, _ = next(loader, (None, None, None))
+            if data is None:
+                return
+            data, target = data.cuda(), target.cuda()
+            _, output = model(data)
+            one_hot_target = torch.nn.functional.one_hot(target).float()
+            loss_erm = F.binary_cross_entropy_with_logits(output * dummy_w, one_hot_target, reduction='none')
+            penalty += compute_irm_penalty(loss_erm, dummy_w)
+            error += loss_erm.mean()
+        (error + penalty_multiplier * penalty).backward()
+        optimizer.step()
+        if batch_idx % 10 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tIRM loss: {:.6f}\tGrad penalty: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loaders[0]),
+                    100. * batch_idx / len(train_loaders[0]), error.item(), penalty.item()))
+        # print('First 20 logits', output.data.cpu().numpy()[:20])
 
-    # batch_idx += 1
+        batch_idx += 1
+
+def irm_train_v2(model, train_loaders, criterion, optimizer, epoch):
+    '''
+    F.cross_entropy()
+
+    '''
+    model.train()
+    train_loaders = [iter(x) for x in train_loaders]
+    dummy_w = torch.nn.Parameter(torch.Tensor([1.0])).cuda()
+    batch_idx = 0
+    penalty_multiplier = epoch ** 1.1
+    print(f'Using penalty multiplier {penalty_multiplier}')
+    while True:
+        error = 0
+        penalty = 0
+        for loader in train_loaders:
+            data, target, _ = next(loader, (None, None, None))
+            if data is None:
+                return
+            data, target = data.cuda(), target.cuda()
+            _, output = model(data)
+            loss_erm = F.cross_entropy(output, target, reduction = "mean")
+            loss_erm_for_penalty = F.cross_entropy(output * dummy_w, target, reduction = "none")
+            penalty += compute_irm_penalty(loss_erm_for_penalty, dummy_w)
+            error += loss_erm
+
+        optimizer.zero_grad()
+        error /= len(train_loaders)
+        penalty /= len(train_loaders)
+        (error  + penalty_multiplier * penalty).backward()
+        optimizer.step()
+
+        if batch_idx % 10 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tIRM_V2 loss: {:.6f}\tGrad penalty: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loaders[0]),
+                    100. * batch_idx / len(train_loaders[0]), error.item(), penalty.item()))
+        # print('First 20 logits', output.data.cpu()numpy()[:20])
+
+        batch_idx += 1
+
+def rex_train(model, train_loaders, criterion, optimizer, epoch):
+    '''
+    REx adapted from DomainBed: https://github.com/facebookresearch/DomainBed/blob/master/domainbed/algorithms.py
+    '''
+    model.train()
+    train_loaders = [iter(x) for x in train_loaders]
+    # dummy_w = torch.nn.Parameter(torch.Tensor([1.0])).cuda()
+    batch_idx = 0
+    penalty_multiplier = 1.0
+    # print(f'Using penalty multiplier {penalty_multiplier}')
+    while True:
+        losses = torch.zeros(len(train_loaders))
+        for i, loader in enumerate(train_loaders):
+            data, target, _ = next(loader, (None, None, None))
+            if data is None:
+                return
+            data, target = data.cuda(), target.cuda()
+            _, output = model(data)
+            loss_erm = F.cross_entropy(output, target)
+            losses[i] = loss_erm
+
+        mean = losses.mean()
+        penalty = ((losses - mean) ** 2).mean()
+        optimizer.zero_grad()
+        (mean + penalty_multiplier * penalty).backward()
+        optimizer.step()
+        if batch_idx % 10 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tREx loss: {:.6f}\tGrad penalty: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loaders[0]),
+                    100. * batch_idx / len(train_loaders[0]), mean.item(), penalty.item()))
+        # print('First 20 logits', output.data.cpu()numpy()[:20])
+
+        batch_idx += 1
+
+def gdro_train(model, train_loaders, criterion, optimizer, epoch):
+    '''
+    GDRO (Robust ERM) minimizes the error of the worst group/domain/env
+    Algorithm 1 from [https://arxiv.org/pdf/1911.08731.pdf]
+    adapted from DomainBed
+    '''
+    groupdro_eta = 1e-2
+    model.train()
+    train_loaders = [iter(x) for x in train_loaders]
+    batch_idx = 0
+    penalty_multiplier = 1.0
+    q = torch.ones(len(train_loaders)).cuda()
+    while True:
+        losses = torch.zeros(len(train_loaders)).cuda()
+        for i, loader in enumerate(train_loaders):
+            data, target, _ = next(loader, (None, None, None))
+            if data is None:
+                return
+            data, target = data.cuda(), target.cuda()
+            _, output = model(data)
+            losses[i] = F.cross_entropy(output, target)
+            q[i] = (groupdro_eta* losses[i].data).exp()
+
+        q /= q.sum()
+        loss = torch.dot(losses, q)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if batch_idx % 10 == 0:
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tGDRO loss: {:.6f}'.format(
+                epoch, batch_idx * len(data), len(train_loaders[0]),
+                    100. * batch_idx / len(train_loaders[0]), loss.item()))
+        batch_idx += 1
 
 def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch, n_g_update=1):
     outer_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'}
