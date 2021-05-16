@@ -39,7 +39,7 @@ parser = argparse.ArgumentParser(description='OOD training for multi-label class
 
 parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-distribution dataset e.g. IN-9')
 parser.add_argument('--model-arch', default='general_model', type=str, help='model architecture e.g. resnet101')
-parser.add_argument('--method', default='gdro', type=str, help='method used for model training')
+parser.add_argument('--method', default='erm', type=str, help='method used for model training')
 parser.add_argument('--save-epoch', default= 10, type=int,
                     help='save the model every save_epoch, default = 10') # freq; save model state_dict()
 parser.add_argument('--print-freq', '-p', default=10, type=int,
@@ -73,12 +73,12 @@ parser.add_argument('--weight-decay', '--wd', default=0.0001, type=float,
 #                     help='compression rate in transition stage (default: 0.5)')
 # parser.add_argument('--no-bottleneck', dest='bottleneck', action='store_false',
 #                     help='To not use bottleneck block')
-parser.add_argument('--data_label_correlation', default= 0.4, type=float,
+parser.add_argument('--data_label_correlation', default= 1, type=float,
                     help='data_label_correlation')
 # saving, naming and logging
 parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
-parser.add_argument('--name', default = "irm_test_0.4_random", type=str,
+parser.add_argument('--name', default = "erm_test_1_debug", type=str,
                     help='name of experiment')
 parser.add_argument('--tensorboard',
                     help='Log progress to TensorBoard', action='store_true')
