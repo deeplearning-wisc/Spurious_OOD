@@ -16,8 +16,7 @@ class res50(nn.Module):
         super(res50, self).__init__()
         self.n_classes = n_classes
         self.method = method
-
-        self.model = torchvision.models.resnet50(pretrained=True)
+        self.model = torchvision.models.resnet18(pretrained=True)
         self.d = self.model.fc.in_features
         self.model.fc = Identity()
 

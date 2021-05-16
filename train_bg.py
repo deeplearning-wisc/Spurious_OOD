@@ -39,7 +39,7 @@ import models.simpleCNN as scnn
 parser = argparse.ArgumentParser(description='OOD training for multi-label classification')
 
 parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-distribution dataset e.g. IN-9')
-parser.add_argument('--model-arch', default='general_model', type=str, help='model architecture e.g. resnet101')
+parser.add_argument('--model-arch', default='resnet18', type=str, help='model architecture e.g. resnet101')
 parser.add_argument('--method', default='erm', type=str, help='method used for model training')
 parser.add_argument('--save-epoch', default= 10, type=int,
                     help='save the model every save_epoch, default = 10') # freq; save model state_dict()
@@ -60,6 +60,9 @@ parser.add_argument('--num-classes', default=2, type=int,
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=0.0001, type=float,
                     help='weight decay (default: 0.0001)')
+
+parser.add_argument('--erm_debug', default= True, type=bool,
+                    help='temperary: debug erm')
 # # densenet
 # parser.add_argument('--layers', default= 100, type=int,
 #                     help='total number of layers (default: 100) for DenseNet')
@@ -225,7 +228,7 @@ def main():
         orig_resnet = torchvision.models.resnet18(pretrained=True)
         features = list(orig_resnet.children())
         model = nn.Sequential(*features[0:8])
-        clsfier = clssimp(512, num_classes)
+        clsfier = clssimp(512, args.num_classes)
     # elif args.model_arch == "resnet101":
     #     # orig_resnet = torchvision.models.resnet101(pretrained=True)
     #     orig_resnet = rn.l_resnet101()
@@ -246,7 +249,12 @@ def main():
     # Method declaration
     if args.method == "dann" or args.method == "cdann" or args.method == "erm" \
                     or args.method == "irm" or args.method == "rex"  or args.method == "gdro" or args.method == "mixup":
-        model = base_model.cuda()
+        if not args.erm_debug: 
+            model = base_model.cuda()
+        else:
+            model = model.cuda()
+            clsfier = clsfier.cuda()
+
     elif args.method == "rebias":
         n_g_nets = 1
         f_model = base_model.cuda()
@@ -280,7 +288,7 @@ def main():
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
-    freeze_bn_affine = True
+    freeze_bn_affine = False
     def freeze_bn(model, freeze_bn_affine=True):
         for m in model.modules():
             if isinstance(m, nn.BatchNorm2d):
@@ -364,8 +372,12 @@ def main():
                 }, epoch + 1)      
         elif args.method == "erm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            train(model, train_loaders, criterion, optimizer, epoch, log)  
-            prec1 = validate(val_loader, model, criterion, epoch, log)
+            if not args.erm_debug:
+                train(model, train_loaders, criterion, optimizer, epoch, log) 
+                prec1 = validate(val_loader, model, criterion, epoch, log)
+            else:
+                train_erm_debug(train_loaders, model, clsfier, criterion, optimizer, epoch, log) 
+                prec1 = validate_erm_debug(val_loader, model, clsfier, criterion, epoch, log)
             if (epoch + 1) % args.save_epoch == 0:
                 save_checkpoint({
                     'epoch': epoch + 1,
@@ -427,6 +439,98 @@ def train(model, train_loaders, criterion, optimizer, epoch, log):
         log_value('nat_train_loss', nat_losses.avg, epoch)
         log_value('nat_train_acc', nat_top1.avg, epoch)
 
+
+def train_erm_debug(train_loaders, model, clsfier, criterion, optimizer, epoch, log):
+    """Train for one epoch on the training set"""
+    batch_time = AverageMeter()
+
+    nat_losses = AverageMeter()
+    nat_top1 = AverageMeter()
+
+    # switch to train mode
+    model.train()
+
+    end = time.time()
+    batch_idx = 0
+    train_loaders = [iter(x) for x in train_loaders]
+    while True:
+        for loader in train_loaders:
+            input, target,_ = next(loader, (None, None, None))
+            if input is None:
+                return
+            input = input.cuda()
+            target = target.cuda()
+
+            nat_output = clsfier(model(input))
+            nat_loss = criterion(nat_output, target)
+
+            # measure accuracy and record loss
+            nat_prec1 = accuracy(nat_output.data, target, topk=(1,))[0]
+            nat_losses.update(nat_loss.data, input.size(0))
+            nat_top1.update(nat_prec1, input.size(0))
+
+            # compute gradient and do SGD step
+            loss = nat_loss
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if batch_idx % 10 == 0:
+                log.debug('Epoch: [{0}][{1}/{2}]\t'
+                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                    'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                        epoch, batch_idx, len(train_loaders[0]) + len(train_loaders[1]), batch_time=batch_time,
+                        loss=nat_losses, top1=nat_top1))
+            batch_idx += 1
+
+def validate_erm_debug(val_loader, model, clsfier, criterion, epoch, log):
+    """Perform validation on the validation set"""
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter()
+
+    # switch to evaluate mode
+    model.eval()
+    clsfier.eval()
+    with torch.no_grad():
+        end = time.time()
+        for i, (input, target, _) in enumerate(val_loader):
+            input = input.cuda()
+            target = target.cuda()
+            # compute output
+            output = model(input)
+            output = clsfier(output)
+            loss = criterion(output, target)
+
+            # measure accuracy and record loss
+            prec1 = accuracy(output.data, target, topk=(1,))[0]
+            losses.update(loss.data, input.size(0))
+            top1.update(prec1, input.size(0))
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if i % args.print_freq == 0:
+                log.debug('Test: [{0}/{1}]\t'
+                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                    'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                        i, len(val_loader), batch_time=batch_time, loss=losses,
+                        top1=top1))
+
+    print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+    # log to TensorBoard
+    if args.tensorboard:
+        log_value('val_loss', losses.avg, epoch)
+        log_value('val_acc', top1.avg, epoch)
+    return top1.avg
 
 def mixup_train(model, optimizer, train_loader1, train_loader2, criterion, mixup_alpha, epoch, log):
     model.train()
