@@ -172,6 +172,11 @@ def main():
                                             n_confusing_labels= 9,
                                             train=False, partial=False, cmap = "2")
         num_classes = args.num_classes
+    elif args.in_dataset == "waterbird":
+        val_dataset = WaterbirdDataset(data_correlation=0.95, train=False)
+        val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+        num_classes = args.num_classes
+
     # create model
     # if args.model_arch == 'densenet':
     #     model = dn.DenseNet3(args.layers, num_classes, normalizer=normalizer)
@@ -189,6 +194,8 @@ def main():
         clsfier = clssimp(512, num_classes)
     elif args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
+    elif args.model_arch == "resnet50":
+        base_model = res50(n_classes=args.num_classes, method=args.method)
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
@@ -213,6 +220,8 @@ def main():
     elif args.in_dataset == 'color_mnist':
          out_datasets = ['partial_color_mnist_0&1']
          # out_datasets = ['partial_color_mnist']
+    elif args.in_dataset == 'waterbird':
+        out_datasets = ['places365_waterbird']
     # load model and store test results
 
 
@@ -544,6 +553,21 @@ def get_ood_loader(out_dataset, CAM = False):
                                              shuffle=True, num_workers=2)
             testloaderOut_cam = torch.utils.data.DataLoader(testsetout, batch_size= 1,
                                              shuffle=True, num_workers=2)
+        elif 'places365_waterbird' in out_dataset:
+            scale = 256.0/224.0
+            target_resolution = (224, 224)
+            val_transform = transforms.Compose([
+                transforms.Resize((int(target_resolution[0]*scale), int(target_resolution[1]*scale))),
+                transforms.CenterCrop(target_resolution),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ])
+            testsetout = torchvision.datasets.ImageFolder("./datasets/ood_datasets/{}".format(out_dataset),
+                                        transform=val_transform)
+            testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size,
+                                             shuffle=True, num_workers=2)
+            testloaderOut_cam = torch.utils.data.DataLoader(testsetout, batch_size= 1,
+                                             shuffle=True, num_workers=2)            
 
             # testloaderOut = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.ood_batch_size,
             #                                 data_label_correlation= 1,

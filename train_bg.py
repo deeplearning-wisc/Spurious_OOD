@@ -243,6 +243,7 @@ def main():
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
+    # Method declaration
     if args.method == "dann" or args.method == "cdann" or args.method == "erm" \
                     or args.method == "irm" or args.method == "rex"  or args.method == "gdro" or args.method == "mixup":
         model = base_model.cuda()
@@ -334,7 +335,7 @@ def main():
                 }, epoch + 1)               
         elif args.method == "irm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            irm_train_v2(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+            irm_train_v2(model, train_loaders, criterion, optimizer, epoch)  
 
             prec1 = validate(val_loader, model, criterion, epoch, log)
 
@@ -345,7 +346,7 @@ def main():
                 }, epoch + 1)        
         elif args.method == "rex":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            rex_train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+            rex_train(model, train_loaders, criterion, optimizer, epoch)  
             prec1 = validate(val_loader, model, criterion, epoch, log)
             if (epoch + 1) % args.save_epoch == 0:
                 save_checkpoint({
@@ -354,7 +355,7 @@ def main():
                 }, epoch + 1)    
         elif args.method == "gdro":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            gdro_train(model, [train_loader1, train_loader2], criterion, optimizer, epoch)  
+            gdro_train(model, train_loaders, criterion, optimizer, epoch)  
             prec1 = validate(val_loader, model, criterion, epoch, log)
             if (epoch + 1) % args.save_epoch == 0:
                 save_checkpoint({
@@ -363,12 +364,8 @@ def main():
                 }, epoch + 1)      
         elif args.method == "erm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            train(model, train_loaders, criterion, optimizer, epoch)  
-
-            # evaluate on validation set
+            train(model, train_loaders, criterion, optimizer, epoch, log)  
             prec1 = validate(val_loader, model, criterion, epoch, log)
-
-            # remember best prec@1 and save checkpoint
             if (epoch + 1) % args.save_epoch == 0:
                 save_checkpoint({
                     'epoch': epoch + 1,
@@ -376,7 +373,7 @@ def main():
                 }, epoch + 1) 
     
 
-def train(model, train_loaders, criterion, optimizer, epoch):
+def train(model, train_loaders, criterion, optimizer, epoch, log):
     """Train for one epoch on the training set"""
     batch_time = AverageMeter()
 
@@ -416,14 +413,14 @@ def train(model, train_loaders, criterion, optimizer, epoch):
             batch_time.update(time.time() - end)
             end = time.time()
 
-            # if batch_idx % 10 == 0:
-            #     log.debug('Epoch: [{0}][{1}/{2}]\t'
-            #         'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-            #         'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-            #         'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-            #             epoch, i, len(train_loaders[0]) + len(train_loaders[1]), batch_time=batch_time,
-            #             loss=nat_losses, top1=nat_top1))
-            # batch_idx += 1
+            if batch_idx % 10 == 0:
+                log.debug('Epoch: [{0}][{1}/{2}]\t'
+                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                    'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                        epoch, batch_idx, len(train_loaders[0]) + len(train_loaders[1]), batch_time=batch_time,
+                        loss=nat_losses, top1=nat_top1))
+            batch_idx += 1
 
     # log to TensorBoard
     if args.tensorboard:
