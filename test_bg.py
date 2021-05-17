@@ -25,7 +25,7 @@ import models.densenet as dn
 import models.wideresnet as wn
 import models.resnet as rn
 import models.simplenet as sn
-from models import CNNModel
+from models import CNNModel, res18, res50
 
 from tensorboard_logger import configure, log_value
 from torch.distributions.multivariate_normal import MultivariateNormal
@@ -34,13 +34,14 @@ from rebias_utils import SimpleConvNet
 
 from torch.utils.data import Sampler
 from datasets.color_mnist import get_biased_mnist_dataloader
+from datasets.cub_dataset import WaterbirdDataset
 import cv2
 from torch.utils.data.dataloader import default_collate
 
 parser = argparse.ArgumentParser(description='OOD Detection Evaluation based on Energy-score')
 
 parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-distribution dataset')
-parser.add_argument('--model-arch', default='general_model', type=str, help='model architecture e.g. resnet101')
+parser.add_argument('--model-arch', default='resnet18', type=str, help='model architecture e.g. resnet101')
 parser.add_argument('--method', default='dann', type=str, help='method used for model training')
 parser.add_argument('--print-freq', '-p', default=10, type=int, help='print frequency (default: 10)') # print every print-freq batches during training
 # ID train & val batch size and OOD train batch size 
@@ -173,7 +174,7 @@ def main():
                                             train=False, partial=False, cmap = "2")
         num_classes = args.num_classes
     elif args.in_dataset == "waterbird":
-        val_dataset = WaterbirdDataset(data_correlation=0.95, train=False)
+        val_dataset = WaterbirdDataset(data_correlation=args.data_label_correlation, train=False)
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
         num_classes = args.num_classes
 
@@ -187,15 +188,17 @@ def main():
         features = list(orig_resnet.children())
         model = nn.Sequential(*features[0:8])
         clsfier = clssimp(2048, num_classes)
-    elif args.model_arch == "resnet18":
-        orig_resnet = torchvision.models.resnet18(pretrained=False)
-        features = list(orig_resnet.children())
-        model = nn.Sequential(*features[0:8])
-        clsfier = clssimp(512, num_classes)
+    # elif args.model_arch == "resnet18":
+    #     orig_resnet = torchvision.models.resnet18(pretrained=False)
+    #     features = list(orig_resnet.children())
+    #     model = nn.Sequential(*features[0:8])
+    #     clsfier = clssimp(512, num_classes)
     elif args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     elif args.model_arch == "resnet50":
         base_model = res50(n_classes=args.num_classes, method=args.method)
+    elif args.model_arch == "resnet18":
+        base_model = res18(n_classes=args.num_classes, method=args.method)
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
@@ -525,7 +528,7 @@ def get_ood_loader(out_dataset, CAM = False):
             testsetout = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/places365",
             # testsetout = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/places365/test_subset",
                 transform=val_transform)
-            subset = torch.utils.data.Subset(testsetout, np.random.choice(len(testsetout), 10000, replace=False))
+            subset = torch.utils.data.Subset(testsetout, np.random.choice(len(testsetout), 5000, replace=False))
             testloaderOut = torch.utils.data.DataLoader(subset, batch_size=args.ood_batch_size,
                                                      num_workers=2, shuffle=True)
         elif out_dataset == 'ocean' or out_dataset == 'coral':
@@ -564,9 +567,10 @@ def get_ood_loader(out_dataset, CAM = False):
             ])
             testsetout = torchvision.datasets.ImageFolder("./datasets/ood_datasets/{}".format(out_dataset),
                                         transform=val_transform)
-            testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size,
+            subset = torch.utils.data.Subset(testsetout, np.random.choice(len(testsetout), 5000, replace=False))
+            testloaderOut = torch.utils.data.DataLoader(subset, batch_size=args.ood_batch_size,
                                              shuffle=True, num_workers=2)
-            testloaderOut_cam = torch.utils.data.DataLoader(testsetout, batch_size= 1,
+            testloaderOut_cam = torch.utils.data.DataLoader(subset, batch_size= 1,
                                              shuffle=True, num_workers=2)            
 
             # testloaderOut = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.ood_batch_size,

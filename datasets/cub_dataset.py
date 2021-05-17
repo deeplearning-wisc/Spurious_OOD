@@ -75,4 +75,5 @@ def get_transform_cub(train):
     return transform
 
 if __name__ == "__main__":
-    test = WaterbirdDataset(data_correlation=0.95, train=True)
+    print(len(WaterbirdDataset(data_correlation=0.95, train=True)))
+    print(len(WaterbirdDataset(data_correlation=0.95, train=False)))

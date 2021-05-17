@@ -23,7 +23,7 @@ import models.densenet as dn
 import models.wideresnet as wn
 import models.resnet as rn
 import models.simplenet as sn
-from models import CNNModel, res50
+from models import CNNModel, res50, res18
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
 # from torch.distributions.multivariate_normal import MultivariateNormal
@@ -61,7 +61,7 @@ parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=0.0001, type=float,
                     help='weight decay (default: 0.0001)')
 
-parser.add_argument('--erm_debug', default= True, type=bool,
+parser.add_argument('--erm_debug', default= False, type=bool,
                     help='temperary: debug erm')
 # # densenet
 # parser.add_argument('--layers', default= 100, type=int,
@@ -205,8 +205,10 @@ def main():
             lr_schedule=[50, 75, 90]
     elif args.in_dataset == "waterbird":
         train_dataset = WaterbirdDataset(data_correlation=0.95, train=True)
+        print(len(train_dataset))
         train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
         val_dataset = WaterbirdDataset(data_correlation=0.95, train=False)
+        print(len(val_dataset))
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
         lr_schedule=[50, 75, 90]
 
@@ -224,11 +226,11 @@ def main():
         features = list(orig_resnet.children())
         model = nn.Sequential(*features[0:8])
         clsfier = clssimp(2048, num_classes)
-    elif args.model_arch == "resnet18":
-        orig_resnet = torchvision.models.resnet18(pretrained=True)
-        features = list(orig_resnet.children())
-        model = nn.Sequential(*features[0:8])
-        clsfier = clssimp(512, args.num_classes)
+    # elif args.model_arch == "resnet18":
+    #     orig_resnet = torchvision.models.resnet18(pretrained=True)
+    #     features = list(orig_resnet.children())
+    #     model = nn.Sequential(*features[0:8])
+    #     clsfier = clssimp(512, args.num_classes)
     # elif args.model_arch == "resnet101":
     #     # orig_resnet = torchvision.models.resnet101(pretrained=True)
     #     orig_resnet = rn.l_resnet101()
@@ -241,6 +243,8 @@ def main():
     #     clsfier = clssimp(2048, num_classes )
     elif args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
+    elif args.model_arch == "resnet18":
+        base_model = res18(n_classes=args.num_classes, method=args.method)
     elif args.model_arch == "resnet50":
         base_model = res50(n_classes=args.num_classes, method=args.method)
     else:
@@ -249,11 +253,7 @@ def main():
     # Method declaration
     if args.method == "dann" or args.method == "cdann" or args.method == "erm" \
                     or args.method == "irm" or args.method == "rex"  or args.method == "gdro" or args.method == "mixup":
-        if not args.erm_debug: 
-            model = base_model.cuda()
-        else:
-            model = model.cuda()
-            clsfier = clsfier.cuda()
+        model = base_model.cuda()
 
     elif args.method == "rebias":
         n_g_nets = 1
@@ -398,6 +398,9 @@ def train(model, train_loaders, criterion, optimizer, epoch, log):
     end = time.time()
     batch_idx = 0
     train_loaders = [iter(x) for x in train_loaders]
+    len_dataloader = 0
+    for x in train_loaders:
+        len_dataloader += len(x)
     while True:
         for loader in train_loaders:
             input, target, _ = next(loader, (None, None, None))
@@ -430,7 +433,7 @@ def train(model, train_loaders, criterion, optimizer, epoch, log):
                     'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                     'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                     'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
-                        epoch, batch_idx, len(train_loaders[0]) + len(train_loaders[1]), batch_time=batch_time,
+                        epoch, batch_idx, len_dataloader, batch_time=batch_time,
                         loss=nat_losses, top1=nat_top1))
             batch_idx += 1
 
