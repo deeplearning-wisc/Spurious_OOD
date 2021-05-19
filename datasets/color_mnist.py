@@ -14,7 +14,7 @@ from torch.utils import data
 from torchvision import transforms
 from torchvision.datasets import MNIST
 from torch.utils.data.dataloader import default_collate
-
+from torch.utils.data.distributed import DistributedSampler
 
 
 # class PartialMNIST(MNIST):
@@ -226,8 +226,9 @@ class ColourBiasedMNIST(BiasedMNIST):
         return self._binary_to_colour(self.data[indices], label), self.targets[indices]
 
 
-def get_biased_mnist_dataloader(root, batch_size, data_label_correlation, cmap,
-                                n_confusing_labels=9, train=True, num_workers=8, partial=False):
+def get_biased_mnist_dataloader(args, root, batch_size, data_label_correlation, cmap,
+                                n_confusing_labels=9, train=True, partial=False):
+    kwargs = {'pin_memory': False, 'num_workers': 8, 'drop_last': True}
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(mean=(0.5, 0.5, 0.5),
@@ -235,12 +236,18 @@ def get_biased_mnist_dataloader(root, batch_size, data_label_correlation, cmap,
     dataset = ColourBiasedMNIST(root, train=train, transform=transform,
                                 download=True, data_label_correlation=data_label_correlation,
                                 n_confusing_labels=n_confusing_labels, partial=partial, cmap = cmap)
-    dataloader = data.DataLoader(dataset=dataset,
-                                 batch_size=batch_size,
-                                 shuffle=True,
-                                 num_workers=num_workers,
-                                 pin_memory=True,
-                                 drop_last=True)
+    if args.multi_gpu:
+            ddp_sampler = DistributedSampler(dataset, num_replicas=args.n_gpus, rank=args.local_rank)
+            dataloader = data.DataLoader(dataset=dataset,
+                                    batch_size=batch_size,
+                                    sampler=ddp_sampler,
+                                    shuffle=False,
+                                    **kwargs)
+    else:
+        dataloader = data.DataLoader(dataset=dataset,
+                                    batch_size=batch_size,
+                                    shuffle=True,
+                                    **kwargs)
     return dataloader
 
 def generate_custom_ood_dataset(name, save_labels, data_label_correlation = 1, n_confusing_labels = 9, train=False, partial=False):

@@ -82,25 +82,33 @@ parser.add_argument('--data_label_correlation', default= 1, type=float,
 # saving, naming and logging
 parser.add_argument('--resume', default='', type=str,
                     help='path to latest checkpoint (default: none)')
-parser.add_argument('--name', default = "erm_test_1_debug", type=str,
+parser.add_argument('--name', default = "erm_nccl_debug", type=str,
                     help='name of experiment')
 parser.add_argument('--tensorboard',
                     help='Log progress to TensorBoard', action='store_true')
 parser.add_argument('--log_name',
                     help='Name of the Log File', type = str, default = "info.log")
 #Device options
-parser.add_argument('--gpu-ids', default='5', type=str,
+parser.add_argument('--gpu-ids', default='4,5', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
 # Miscs
 parser.add_argument('--manualSeed', type=int, help='manual seed')
 
+#DDP
+# parser.add_argument('-n', '--nodes', default=1,
+#                         type=int, metavar='N')
+# parser.add_argument('-g', '--gpus', default=1, type=int,
+#                         help='number of gpus per node')
+parser.add_argument('--local_rank', default=-1, type=int,
+                        help='rank for the current node')
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(augment=True)
 
 args = parser.parse_args()
 
 state = {k: v for k, v in args._get_kwargs()}
-print(state)
+# print(state)
+
 directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
 if not os.path.exists(directory):
     os.makedirs(directory)
@@ -109,18 +117,42 @@ fw = open(save_state_file, 'w')
 print(state, file=fw)
 fw.close()
 
-# Use CUDA
+# CUDA Specification
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_ids
-use_cuda = torch.cuda.is_available()
-devices = list(range(torch.cuda.device_count()))
+if torch.cuda.is_available():
+    torch.cuda.set_device(args.local_rank)
+device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
+args.n_gpus =torch.cuda.device_count()
+if args.n_gpus > 1:
+    import torch.distributed as dist
+    import torch.multiprocessing as mp
+    from torch.utils.data.distributed import DistributedSampler
+    from torch.nn.parallel import DistributedDataParallel as DDP
+    # import apex
+    # from apex.parallel import DistributedDataParallel as DDP
+    # from apex import amp
+    args.multi_gpu = True
+    torch.distributed.init_process_group(
+        'nccl',
+        init_method='env://',
+        world_size=args.n_gpus,
+        rank=args.local_rank,
+    )
+    # devices = list(range(args.n_gpus))
+else:
+    args.multi_gpu = False
 
-# Random seed
+# Set random seed
+def set_random_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
 if args.manualSeed is None:
     args.manualSeed = random.randint(1, 10000)
-torch.manual_seed(args.manualSeed)
-np.random.seed(args.manualSeed)
-if use_cuda:
-    torch.cuda.manual_seed_all(args.manualSeed)
+set_random_seed(args.manualSeed)
+
 
 def flatten(list_of_lists):
     return itertools.chain.from_iterable(list_of_lists)
@@ -139,66 +171,52 @@ def main():
     log.addHandler(streamHandler) 
 
     # Image trannsform for natural datasets (**Not applicable for ColorMNIST)
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-    img_transform = transforms.Compose([
-                                        # transforms.RandomResizedCrop((256),scale=(0.5, 2.0)),
-                                        transforms.RandomResizedCrop(224),
-                                        transforms.RandomHorizontalFlip(),
-                                        transforms.ToTensor(),
-                                        normalize])
-    val_transform = transforms.Compose([transforms.Resize(256),
-                                        transforms.CenterCrop(224),
-                                        transforms.ToTensor(),
-                                        normalize])
+    # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+    #                                  std=[0.229, 0.224, 0.225])
+    # img_transform = transforms.Compose([
+    #                                     # transforms.RandomResizedCrop((256),scale=(0.5, 2.0)),
+    #                                     transforms.RandomResizedCrop(224),
+    #                                     transforms.RandomHorizontalFlip(),
+    #                                     transforms.ToTensor(),
+    #                                     normalize])
+    # val_transform = transforms.Compose([transforms.Resize(256),
+    #                                     transforms.CenterCrop(224),
+    #                                     transforms.ToTensor(),
+    #                                     normalize])
     # label_transform = transforms.Compose([ToLabel()])
 
-    if args.in_dataset == "IN-9":
-        train_set = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/background/original/train", transform=img_transform)
-        val_set = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/background/original/val", transform=val_transform)    
-        num_classes = 9
-        lr_schedule=[50, 75, 90]
-        train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size, num_workers= 4, shuffle=True, pin_memory=True)
-        val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch_size, num_workers= 4, shuffle=False, pin_memory=True)
-    elif args.in_dataset == "random":
-        train_set = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/shape/train", transform=img_transform)
-        val_set = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/shape/val", transform=val_transform)    
-        num_classes = 9
-        lr_schedule=[50, 75, 90]
-        train_loader = torch.utils.data.DataLoader(train_set, batch_size=args.batch_size, num_workers= 4, shuffle=True, pin_memory=True)
-        val_loader = torch.utils.data.DataLoader(val_set, batch_size=args.batch_size, num_workers= 4, shuffle=False, pin_memory=True)
-    elif args.in_dataset == "color_mnist":
-            train_loader1 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+    if args.in_dataset == "color_mnist":
+            train_loader1 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=True, partial=True, cmap = "1")
-            train_loader2 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+            train_loader2 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=True, partial=True, cmap = "2")
-            val_loader = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+            val_loader = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=False, partial=True, cmap = "1")
             lr_schedule=[50, 75, 90]
     elif args.in_dataset == "color_mnist_multi":
-            train_loader1 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+            train_loader1 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=True, partial=True, cmap = "1")
-            train_loader2 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+            train_loader2 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=True, partial=True, cmap = "2")
-            train_loader3 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+            train_loader3 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=True, partial=True, cmap = "3")
-            train_loader4 = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+            train_loader4 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=True, partial=True, cmap = "4")
-            val_loader = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+            val_loader = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=False, partial=True, cmap = "1")
@@ -211,37 +229,13 @@ def main():
         print(len(val_dataset))
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
         lr_schedule=[50, 75, 90]
-
     # create model
-    if args.model_arch == 'densenet':
-        # model = dn.DenseNet3(args.layers, num_classes, args.growth, reduction=args.reduce,
-        #                      bottleneck=args.bottleneck, dropRate=args.droprate, normalizer=normalizer)
-        orig_densenet = torchvision.models.densenet121(pretrained=True)
-        features = list(orig_densenet.features)
-        model = nn.Sequential(*features, nn.ReLU(inplace=True))
-        clsfier = clssimp(1024, num_classes)
-        # model = torchvision.models.densenet121(pretrained=False)
-    elif args.model_arch == "wideresnet50":
-        orig_resnet = torchvision.models.wide_resnet50_2(pretrained=True)
-        features = list(orig_resnet.children())
-        model = nn.Sequential(*features[0:8])
-        clsfier = clssimp(2048, num_classes)
     # elif args.model_arch == "resnet18":
     #     orig_resnet = torchvision.models.resnet18(pretrained=True)
     #     features = list(orig_resnet.children())
     #     model = nn.Sequential(*features[0:8])
     #     clsfier = clssimp(512, args.num_classes)
-    # elif args.model_arch == "resnet101":
-    #     # orig_resnet = torchvision.models.resnet101(pretrained=True)
-    #     orig_resnet = rn.l_resnet101()
-    #     rn_checkpoint = torch.load("R-101-GN-WS.pth.tar")
-    #     from collections import OrderedDict
-    #     new_checkpoint = OrderedDict([(k[7:], v) for k, v in rn_checkpoint.items()])
-    #     orig_resnet.load_state_dict(new_checkpoint)
-    #     features = list(orig_resnet.children())
-    #     model = nn.Sequential(*features[0:8])
-    #     clsfier = clssimp(2048, num_classes )
-    elif args.model_arch == "general_model":
+    if args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     elif args.model_arch == "resnet18":
         base_model = res18(n_classes=args.num_classes, method=args.method)
@@ -253,7 +247,24 @@ def main():
     # Method declaration
     if args.method == "dann" or args.method == "cdann" or args.method == "erm" \
                     or args.method == "irm" or args.method == "rex"  or args.method == "gdro" or args.method == "mixup":
-        model = base_model.cuda()
+        if args.multi_gpu:
+            base_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(base_model)
+            model = base_model.to(device)
+            # print(f"DDP: model put on device: {dist.get_rank()}")
+            model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank)
+            # print("fDDP: model loading done on device: {dist.get_rank()}")
+            criterion = nn.CrossEntropyLoss().to(device)
+            # if use apex
+            # print("DDP: start sync batchnorm")
+            # base_model = apex.parallel.convert_syncbn_model(base_model)
+            # print("DDP: sync batchnorm done")
+            # model = base_model.cuda()
+            # print("DDP: model put on device")
+            # model = apex.parallel.DistributedDataParallel(model, delay_allreduce=True)
+            # print("DDP: model loading done")
+        else:
+            model = base_model.cuda()
+            criterion = nn.CrossEntropyLoss().cuda()
 
     elif args.method == "rebias":
         n_g_nets = 1
@@ -264,7 +275,6 @@ def main():
     
     cudnn.benchmark = True
 
-    criterion = nn.CrossEntropyLoss().cuda()
     
     if args.method == "rebias":
         f_optimizer = torch.optim.Adam(f_model.parameters(), lr=args.lr)
@@ -281,7 +291,7 @@ def main():
             # checkpoint = torch.load(args.resume, map_location = 'cuda:0') # (if not Dataparallel) loads the model to a given GPU device
             args.start_epoch = checkpoint['epoch']
             model.load_state_dict(checkpoint['state_dict_model'])
-            clsfier.load_state_dict(checkpoint['state_dict_clsfier'])
+            # clsfier.load_state_dict(checkpoint['state_dict_clsfier'])
             # model = model.to('cuda:0') # (if not Dataparallel) convert the model’s parameter tensors to CUDA tensors
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
@@ -313,75 +323,56 @@ def main():
         train_loaders = [train_loader]
 
     for epoch in range(args.start_epoch, args.epochs):
+        if args.multi_gpu:
+            if dist.get_rank() == 0:
+                print(f"Start training epoch {epoch}")
+            for train_loader in train_loaders:
+                train_loader.sampler.set_epoch(epoch)
+        else:
+            print(f"Start training epoch {epoch}")
         # train for one epoch
         # train(train_loader, model, clsfier, criterion, optimizer, epoch, log)
         # train_contrast(train_loader1, train_loader2, model, clsfier, criterion, optimizer, epoch, log)
         if args.method == "rebias":
             rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch)
             prec1 = rebias_validate(f_model, val_loader, epoch, log)
-            if (epoch + 1) % args.save_epoch == 0:
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict_model': f_model.state_dict(),
-                }, epoch + 1) 
         elif args.method == "dann" or args.method == "cdann":
             dann_train(model, train_loaders, optimizer, epoch, args.epochs, cdann=(args.method == "cdann"))
-            prec1 = dann_validate(model, val_loader, epoch, log, cdann=(args.method == "cdann"))
-            if (epoch + 1) % args.save_epoch == 0:
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict_model': model.state_dict(),
-                }, epoch + 1)       
+            prec1 = dann_validate(model, val_loader, epoch, log, cdann=(args.method == "cdann"))      
         elif args.method == "mixup":
             mixup_alpha = 1
             mixup_train(model, optimizer, train_loader1, train_loader2, criterion, mixup_alpha, epoch, log)
-            prec1 = validate(val_loader, model, criterion, epoch, log)
-            if (epoch + 1) % args.save_epoch == 0:
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict_model': model.state_dict(),
-                }, epoch + 1)               
+            prec1 = validate(val_loader, model, criterion, epoch, log)         
         elif args.method == "irm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
             irm_train_v2(model, train_loaders, criterion, optimizer, epoch)  
-
-            prec1 = validate(val_loader, model, criterion, epoch, log)
-
-            if (epoch + 1) % args.save_epoch == 0:
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict_model': model.state_dict(),
-                }, epoch + 1)        
+            prec1 = validate(val_loader, model, criterion, epoch, log)      
         elif args.method == "rex":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
             rex_train(model, train_loaders, criterion, optimizer, epoch)  
-            prec1 = validate(val_loader, model, criterion, epoch, log)
-            if (epoch + 1) % args.save_epoch == 0:
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict_model': model.state_dict(),
-                }, epoch + 1)    
+            prec1 = validate(val_loader, model, criterion, epoch, log)  
         elif args.method == "gdro":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
             gdro_train(model, train_loaders, criterion, optimizer, epoch)  
-            prec1 = validate(val_loader, model, criterion, epoch, log)
-            if (epoch + 1) % args.save_epoch == 0:
-                save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict_model': model.state_dict(),
-                }, epoch + 1)      
+            prec1 = validate(val_loader, model, criterion, epoch, log)  
         elif args.method == "erm":
-            adjust_learning_rate(optimizer, epoch, lr_schedule)
+            # adjust_learning_rate(optimizer, epoch, lr_schedule)
             if not args.erm_debug:
                 train(model, train_loaders, criterion, optimizer, epoch, log) 
                 prec1 = validate(val_loader, model, criterion, epoch, log)
             else:
                 train_erm_debug(train_loaders, model, clsfier, criterion, optimizer, epoch, log) 
                 prec1 = validate_erm_debug(val_loader, model, clsfier, criterion, epoch, log)
-            if (epoch + 1) % args.save_epoch == 0:
+        if  (epoch + 1) % args.save_epoch == 0:
+            if args.multi_gpu and dist.get_rank() == 0:
                 save_checkpoint({
-                    'epoch': epoch + 1,
-                    'state_dict_model': model.state_dict(),
+                        'epoch': epoch + 1,
+                        'state_dict_model': model.module.state_dict(),
+                }, epoch + 1) 
+            else:
+                save_checkpoint({
+                        'epoch': epoch + 1,
+                        'state_dict_model': model.state_dict(),
                 }, epoch + 1) 
     
 
@@ -394,7 +385,6 @@ def train(model, train_loaders, criterion, optimizer, epoch, log):
 
     # switch to train mode
     model.train()
-
     end = time.time()
     batch_idx = 0
     train_loaders = [iter(x) for x in train_loaders]
