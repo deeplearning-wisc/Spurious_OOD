@@ -55,20 +55,19 @@ parser.add_argument('--epsilon', default=8.0, type=float, help='epsilon')
 parser.add_argument('--iters', default=40, type=int,
                     help='attack iterations')
 parser.add_argument('--iter-size', default=1.0, type=float, help='attack step size')
-
 parser.add_argument('--severity-level', default=5, type=int, help='severity level')
 
-parser.add_argument('-b', '--batch-size', default=100, type=int,
+parser.add_argument('-b', '--batch-size', default=400, type=int,
                     help='mini-batch size')
 
 parser.add_argument('--base-dir', default='output/ood_scores', type=str, help='result directory')
 
-parser.add_argument('--layers', default=100, type=int,
-                    help='total number of layers (default: 100)')
-parser.add_argument('--depth', default=40, type=int,
-                    help='depth of resnet')
-parser.add_argument('--width', default=4, type=int,
-                    help='width of resnet')
+# parser.add_argument('--layers', default=100, type=int,
+#                     help='total number of layers (default: 100)')
+# parser.add_argument('--depth', default=40, type=int,
+#                     help='depth of resnet')
+# parser.add_argument('--width', default=4, type=int,
+#                     help='width of resnet')
 
 parser.add_argument('--data_label_correlation', default= 0.8, type=float,
                     help='data_label_correlation')
@@ -76,6 +75,8 @@ parser.add_argument('--num-classes', default=2, type=int,
                     help='number of classes for model training')
 parser.add_argument('--ood-batch-size', default= 64, type=int,
                     help='mini-batch size (default: 400) used for testing')
+parser.add_argument('--multi_gpu', default=False, type=bool,
+                    help='if distributed')
 parser.set_defaults(argument=True)
 
 args = parser.parse_args()
@@ -235,7 +236,7 @@ def eval_ood_detector(base_dir, in_dataset, out_datasets, batch_size, method, me
 
     elif args.in_dataset == "color_mnist":
         # val_loader  = get_ood_loader("0_background")
-        testloaderIn = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+        testloaderIn = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=False, partial=True, cmap = "2")
@@ -348,14 +349,20 @@ def eval_ood_detector(base_dir, in_dataset, out_datasets, batch_size, method, me
         if not os.path.exists(out_save_dir):
             os.makedirs(out_save_dir)
 
+        val_transform = transforms.Compose([
+                transforms.Resize(28),
+                 transforms.CenterCrop(28),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=(0.5, 0.5, 0.5),
+                             std=(0.5, 0.5, 0.5))])
         if out_dataset == 'SVHN':
             testsetout = svhn.SVHN('datasets/ood_datasets/svhn/', split='test',
-                                  transform=transforms.ToTensor(), download=False)
+                                  transform=val_transform, download=False)
             testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=batch_size,
                                              shuffle=True, num_workers=2)
         elif out_dataset == 'dtd':
             testsetout = torchvision.datasets.ImageFolder(root="datasets/ood_datasets/dtd/images",
-                                        transform=transforms.Compose([transforms.Resize(32), transforms.CenterCrop(32), transforms.ToTensor()]))
+                                        transform=val_transform)
             testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=batch_size, shuffle=True,
                                                      num_workers=2)
         elif out_dataset == 'places365':
@@ -375,7 +382,7 @@ def eval_ood_detector(base_dir, in_dataset, out_datasets, batch_size, method, me
                                              shuffle=True, num_workers=2)
         else:
             testsetout = torchvision.datasets.ImageFolder("./datasets/ood_datasets/{}".format(out_dataset),
-                                        transform=transforms.Compose([transforms.Resize(32), transforms.CenterCrop(32), transforms.ToTensor()]))
+                                        transform=val_transform)
             testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=batch_size,
                                              shuffle=True, num_workers=2)
 
@@ -423,7 +430,8 @@ if __name__ == '__main__':
     elif args.in_dataset == "SVHN":
         out_datasets = ['LSUN', 'LSUN_resize', 'iSUN', 'dtd']
     elif args.in_dataset == 'color_mnist':
-         out_datasets = ['partial_color_mnist_0&1']
+        out_datasets = ['dtd','SVHN', 'iSUN','LSUN_resize']
+        # out_datasets = ['partial_color_mnist_0&1','SVHN']
 
     print("checking args...")
     print("adv: {}, corrupt: {}, adv_corrput: {})".format(args.adv, args.corrupt, args.adv_corrupt))

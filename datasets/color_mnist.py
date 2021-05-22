@@ -251,7 +251,7 @@ def get_biased_mnist_dataloader(args, root, batch_size, data_label_correlation, 
     return dataloader
 
 def generate_custom_ood_dataset(name, save_labels, data_label_correlation = 1, n_confusing_labels = 9, train=False, partial=False):
-    loader = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=1,
+    loader = get_biased_mnist_dataloader(args = None, root = './datasets/MNIST', batch_size=1,
                                             data_label_correlation= data_label_correlation,
                                             n_confusing_labels= n_confusing_labels,
                                             train=train, partial=partial, cmap = "2")
@@ -320,4 +320,4 @@ if __name__ == "__main__":
     #                                         train=True, partial=True)
     # generate_custom_ood_dataset("exam_train_set", save_labels = [0,1,2,3,4,5,6,7,8,9], data_label_correlation= 0.1,
     #                                         n_confusing_labels= 4, train=True, partial=True)
-    generate_custom_ood_dataset("black0&1", save_labels=[0,1], data_label_correlation=1, n_confusing_labels= 4, train=True, partial=True)
+    generate_custom_ood_dataset("cross-bias", save_labels=[0,1], data_label_correlation=1, n_confusing_labels= 4, train=True, partial=True)
