@@ -28,6 +28,7 @@ from scipy import misc
 from models import CNNModel
 # from utils import OODScoreLinfPGDAttack, ConfidenceLinfPGDAttack, MahalanobisLinfPGDAttack, SOFLLinfPGDAttack, metric, sample_estimator, get_Mahalanobis_score, gen_corruction_image
 from datasets.color_mnist import get_biased_mnist_dataloader
+from models import CNNModel, res50, res18
 
 parser = argparse.ArgumentParser(description='OOD Detection Evaluation for various methods')
 
@@ -36,7 +37,7 @@ parser.add_argument('--name', default = "erm_r_0_8", type=str,
                     help='neural network name and training set')
 parser.add_argument('--epochs', default ="10", type=str,
                     help='number of total epochs to run')
-parser.add_argument('--model-arch', default='general_model', type=str, help='model architecture')
+parser.add_argument('--model-arch', default='resnet18', type=str, help='model architecture')
 
 parser.add_argument('--gpu', default = '0', type = str,
 		    help='gpu index')
@@ -251,8 +252,8 @@ def eval_ood_detector(base_dir, in_dataset, out_datasets, batch_size, method, me
 
     method_args['num_classes'] = num_classes
 
-    if args.model_arch == "resnet":
-        model = rn.ResNet([(16, 3), (32, 3), (64, 3)])
+    if args.model_arch == "resnet18":
+        model = res18(n_classes=args.num_classes, method=args.method)
     elif args.model_arch == "general_model":
         model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     elif args.model_arch == 'densenet':
