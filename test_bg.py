@@ -37,6 +37,7 @@ from datasets.color_mnist import get_biased_mnist_dataloader
 from datasets.cub_dataset import WaterbirdDataset
 import cv2
 from torch.utils.data.dataloader import default_collate
+import utils.svhn_loader as svhn
 
 parser = argparse.ArgumentParser(description='OOD Detection Evaluation based on Energy-score')
 
@@ -223,7 +224,8 @@ def main():
     elif args.in_dataset == 'random':
         out_datasets = ['red_rectangle', 'green_rectangle']
     elif args.in_dataset == 'color_mnist':
-         out_datasets = ['partial_color_mnist_0&1']
+        out_datasets = ['dtd','SVHN', 'iSUN','LSUN_resize']
+        # out_datasets = ['partial_color_mnist_0&1']
          # out_datasets = ['partial_color_mnist']
     elif args.in_dataset == 'waterbird':
         out_datasets = ['placesbg']
@@ -500,11 +502,17 @@ def accuracy(output, target, topk=(1,)):
     return res
 
 def get_ood_loader(out_dataset, CAM = False):
-        normalizer = transforms.Normalize((125.3/255, 123.0/255, 113.9/255), (63.0/255, 62.1/255.0, 66.7/255.0))
-        val_transform  =  transforms.Compose([transforms.Scale(256),
-                                        transforms.CenterCrop(224),
-                                        transforms.ToTensor(),
-                                        normalizer])
+        # normalizer = transforms.Normalize((125.3/255, 123.0/255, 113.9/255), (63.0/255, 62.1/255.0, 66.7/255.0))
+        # val_transform  =  transforms.Compose([transforms.Scale(256),
+        #                                 transforms.CenterCrop(224),
+        #                                 transforms.ToTensor(),
+        #                                 normalizer])
+        val_transform = transforms.Compose([
+                transforms.Resize(28),
+                 transforms.CenterCrop(28),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=(0.5, 0.5, 0.5),
+                             std=(0.5, 0.5, 0.5))])
         if out_dataset == 'SVHN':
             testsetout = svhn.SVHN('datasets/ood_datasets/svhn/', split='test',
                                   transform= val_transform, download=False)
@@ -522,11 +530,11 @@ def get_ood_loader(out_dataset, CAM = False):
         #     subset = torch.utils.data.Subset(testsetout, np.random.choice(len(testsetout), 10000, replace=False))
         #     testloaderOut = torch.utils.data.DataLoader(subset, batch_size=args.ood_batch_size, shuffle=True,
         #                                              num_workers=2)
-        # elif out_dataset == 'dtd':
-        #     testsetout = torchvision.datasets.ImageFolder(root="datasets/ood_datasets/dtd/images",
-        #                                 transform=transforms.Compose([transforms.Resize(32), transforms.CenterCrop(32), transforms.ToTensor()]))
-        #     testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size, shuffle=True,
-        #                                              num_workers=2)
+        elif out_dataset == 'dtd':
+            testsetout = torchvision.datasets.ImageFolder(root="datasets/ood_datasets/dtd/images",
+                                        transform=val_transform)
+            testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size, shuffle=True,
+                                                     num_workers=2)
         elif out_dataset == 'places365':
             testsetout = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/places365",
             # testsetout = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/places365/test_subset",

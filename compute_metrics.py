@@ -220,8 +220,8 @@ if __name__ == '__main__':
     elif args.in_dataset == "SVHN":
         out_datasets = ['LSUN', 'LSUN_resize', 'iSUN', 'dtd']
     elif args.in_dataset == 'color_mnist':
-        #  out_datasets = ['partial_color_mnist_0&1']
-        out_datasets = ['dtd', 'svhn', 'iSUN', 'LSUN_resize']
+         # out_datasets = ['partial_color_mnist_0&1', 'SVHN']
+         out_datasets = ['dtd','SVHN', 'iSUN','LSUN_resize']
     all_fprs = dict()
     for epochs in args.epochs.split():
         all_fprs[epochs] = compute_traditional_ood(args.base_dir, args.in_dataset, out_datasets, args.method, args.name, epochs)
