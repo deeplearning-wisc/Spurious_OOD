@@ -37,6 +37,7 @@ from datasets.color_mnist import get_biased_mnist_dataloader
 from datasets.cub_dataset import WaterbirdDataset
 import cv2
 from torch.utils.data.dataloader import default_collate
+import utils.svhn_loader as svhn
 
 parser = argparse.ArgumentParser(description='OOD Detection Evaluation based on Energy-score')
 
