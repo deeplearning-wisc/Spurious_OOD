@@ -29,9 +29,11 @@ def main():
         # out_datasets = ["CelebA",'SVHN',  "CIFAR-100"]
     elif args.in_dataset == "IN-9":
         out_datasets = ['no_fg','only_bg_b', 'places365', 'SVHN', 'ocean']
-    elif args.in_dataset == "color_mnist":
+    elif args.in_dataset == "color_mnist" or args.in_dataset == "color_mnist_multi":
         out_datasets = ['partial_color_mnist_0&1']
         # out_datasets = ['partial_color_mnist']
+    elif args.in_dataset == "waterbird":
+        out_datasets = ['placesbg']
     fprs = dict()
     for test_epoch in args.test_epochs.split():
         all_results_ntom = []
@@ -65,7 +67,10 @@ def main():
                 plt.title("Energy")
                 plt.ylim(0, 0.3)
                 plt.xlim(-10, 20)
-                save_dir = "results_binary/" + args.name
+                if args.in_dataset == "color_mnist":
+                    save_dir = "results_binary/" + args.name
+                elif args.in_dataset == "waterbird":
+                    save_dir = "results_waterbird/" + args.name
                 save_name = "energy_" + out_dataset + "_" + args.name + ".png"
                 plt.savefig(os.path.join(save_dir, save_name), bbox_inches='tight')
         print("Avg FPR95: ", round(100 * all_results["FPR95"]/len(out_datasets),2))

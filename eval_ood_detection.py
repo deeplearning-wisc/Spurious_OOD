@@ -25,7 +25,7 @@ import numpy as np
 import time
 #import lmdb
 from scipy import misc
-from models import CNNModel
+from models import CNNModel, res50, res18
 # from utils import OODScoreLinfPGDAttack, ConfidenceLinfPGDAttack, MahalanobisLinfPGDAttack, SOFLLinfPGDAttack, metric, sample_estimator, get_Mahalanobis_score, gen_corruction_image
 from datasets.color_mnist import get_biased_mnist_dataloader
 
@@ -76,6 +76,7 @@ parser.add_argument('--num-classes', default=2, type=int,
                     help='number of classes for model training')
 parser.add_argument('--ood-batch-size', default= 64, type=int,
                     help='mini-batch size (default: 400) used for testing')
+parser.add_argument('--multi-gpu', default=False, type=bool)
 parser.set_defaults(argument=True)
 
 args = parser.parse_args()
@@ -235,10 +236,10 @@ def eval_ood_detector(base_dir, in_dataset, out_datasets, batch_size, method, me
 
     elif args.in_dataset == "color_mnist":
         # val_loader  = get_ood_loader("0_background")
-        testloaderIn = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+        testloaderIn = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
-                                            train=False, partial=True, cmap = "2")
+                                            train=False, partial=True, cmap = "1")
         num_classes = args.num_classes
         num_reject_classes = 1
 
@@ -265,18 +266,21 @@ def eval_ood_detector(base_dir, in_dataset, out_datasets, batch_size, method, me
         gmm_out = torch.load("checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name) + 'out_gmm.pth.tar')
         gmm_out.alpha = nn.Parameter(gmm.alpha)
         whole_model = gmmlib.DoublyRobustModel(model, gmm, gmm_out, loglam = 0., dim=3072, classes=num_classes)
+    elif args.model_arch == "resnet18":
+        model = res18(n_classes=args.num_classes, method=args.name.split("_")[0])
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
-    checkpoint = torch.load("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=in_dataset, name=name, epochs=epochs))
+    if args.in_dataset == "color_mnist":
+        checkpoint = torch.load("./checkpoints/{in_dataset}_res18/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=in_dataset, name=name, epochs=epochs))
+    else:
+        checkpoint = torch.load("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=in_dataset, name=name, epochs=epochs))
     
     if args.model_arch == 'densenet_ccu':
         whole_model.load_state_dict(checkpoint['state_dict'])
     else:
         model.load_state_dict(checkpoint['state_dict_model'])
     
-    
-
     model.eval()
     model.cuda()
 
@@ -423,7 +427,8 @@ if __name__ == '__main__':
     elif args.in_dataset == "SVHN":
         out_datasets = ['LSUN', 'LSUN_resize', 'iSUN', 'dtd']
     elif args.in_dataset == 'color_mnist':
-         out_datasets = ['partial_color_mnist_0&1']
+        #  out_datasets = ['partial_color_mnist_0&1']
+        out_datasets = ['dtd', 'svhn', 'iSUN', 'LSUN_resize']
 
     print("checking args...")
     print("adv: {}, corrupt: {}, adv_corrput: {})".format(args.adv, args.corrupt, args.adv_corrupt))

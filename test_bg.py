@@ -32,7 +32,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from rebias_utils import SimpleConvNet
 
 
-from torch.utils.data import Sampler
+from torch.utils.data import Sampler, DataLoader
 from datasets.color_mnist import get_biased_mnist_dataloader
 from datasets.cub_dataset import WaterbirdDataset
 import cv2
@@ -81,7 +81,9 @@ parser.add_argument('--gpu-ids', default='5', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
 # Miscs
 parser.add_argument('--manualSeed', type=int, help='manual seed')
-
+parser.add_argument('--local_rank', default=-1, type=int,
+                        help='rank for the current node')
+parser.add_argument('--multi-gpu', default=False, type=bool)
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(augment=True)
 
@@ -99,13 +101,13 @@ directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset
 # fw.close()
 
 # Use CUDA
-os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_ids
-torch.manual_seed(1)
-np.random.seed(1)
-np.random.seed(1)
-use_cuda = torch.cuda.is_available()
-if use_cuda:
-    torch.cuda.manual_seed_all(1)
+# os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_ids
+# torch.manual_seed(1)
+# np.random.seed(1)
+# np.random.seed(1)
+# use_cuda = torch.cuda.is_available()
+# if use_cuda:
+#     torch.cuda.manual_seed_all(1)
 
 def main():
 
@@ -162,16 +164,16 @@ def main():
                                          shuffle=True, num_workers=2)
         num_classes = 9
 
-    elif args.in_dataset == "color_mnist":
+    elif args.in_dataset == "color_mnist" or args.in_dataset == "color_mnist_multi":
         # val_loader  = get_ood_loader("0_background")
-        val_loader = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.batch_size,
+        val_loader = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
-                                            train=False, partial=True, cmap = "2")
-        val_loader_cam = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=1,
+                                            train=False, partial=True, cmap = "1")
+        val_loader_cam = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=1,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= 9,
-                                            train=False, partial=False, cmap = "2")
+                                            train=False, partial=False, cmap = "1")
         num_classes = args.num_classes
     elif args.in_dataset == "waterbird":
         val_dataset = WaterbirdDataset(data_correlation=args.data_label_correlation, train=False)
@@ -224,11 +226,12 @@ def main():
          out_datasets = ['partial_color_mnist_0&1']
          # out_datasets = ['partial_color_mnist']
     elif args.in_dataset == 'waterbird':
-        out_datasets = ['places365_waterbird']
+        out_datasets = ['placesbg']
     # load model and store test results
 
 
     for test_epoch in test_epochs:
+        print("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=args.in_dataset, name=args.name, epochs= test_epoch))
         checkpoint = torch.load("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=args.in_dataset, name=args.name, epochs= test_epoch))
         # model.load_state_dict(checkpoint['state_dict'])
         model.load_state_dict(checkpoint['state_dict_model'])
@@ -308,7 +311,7 @@ def get_energy(args, model, val_loader, epoch, log, method, id = False, CAM = Fa
                     'Energy Sum {in_energy.val:.4f} ({in_energy.avg:.4f})'.format(
                         epoch, i, len(val_loader), in_energy=in_energy))
         if id:
-            print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+            log.debug(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
             stacked = torch.stack((all_targets,all_preds),dim=1)
             cmt = torch.zeros(9,9, dtype=torch.int64)
             for p in stacked:
@@ -354,7 +357,7 @@ def get_energy_biased(args, model, val_loader, epoch, log, method, id = False, C
                     'Energy Sum {in_energy.val:.4f} ({in_energy.avg:.4f})'.format(
                         epoch, i, len(val_loader), in_energy=in_energy))
         if id:
-            print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+            log.debug(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
             stacked = torch.stack((all_targets,all_preds),dim=1)
             cmt = torch.zeros(5,5, dtype=torch.int64)
             for p in stacked:
@@ -556,7 +559,7 @@ def get_ood_loader(out_dataset, CAM = False):
                                              shuffle=True, num_workers=2)
             testloaderOut_cam = torch.utils.data.DataLoader(testsetout, batch_size= 1,
                                              shuffle=True, num_workers=2)
-        elif 'places365_waterbird' in out_dataset:
+        elif 'placesbg' in out_dataset:
             scale = 256.0/224.0
             target_resolution = (224, 224)
             val_transform = transforms.Compose([

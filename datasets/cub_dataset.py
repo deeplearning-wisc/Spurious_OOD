@@ -6,6 +6,7 @@ import torchvision.transforms as transforms
 
 from PIL import Image
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
 
 # Ignore warnings
 import warnings
@@ -73,6 +74,23 @@ def get_transform_cub(train):
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
         ])
     return transform
+
+def get_waterbird_dataloader(args, data_label_correlation, train=True):
+    kwargs = {'pin_memory': False, 'num_workers': 8, 'drop_last': True}
+    dataset = WaterbirdDataset(data_correlation=data_label_correlation, train=train)
+    if args.multi_gpu:
+            ddp_sampler = DistributedSampler(dataset, num_replicas=args.n_gpus, rank=args.local_rank)
+            dataloader = DataLoader(dataset=dataset,
+                                    batch_size=args.batch_size,
+                                    sampler=ddp_sampler,
+                                    shuffle=False,
+                                    **kwargs)
+    else:
+        dataloader = DataLoader(dataset=dataset,
+                                    batch_size=args.batch_size,
+                                    shuffle=True,
+                                    **kwargs)
+    return dataloader
 
 if __name__ == "__main__":
     print(len(WaterbirdDataset(data_correlation=0.95, train=True)))

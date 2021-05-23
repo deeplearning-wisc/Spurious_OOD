@@ -16,7 +16,7 @@ target_places = [
     ['ocean', 'lake/natural']]              # Water backgrounds
 
 val_frac = 0.2             # What fraction of the training data to use as validation
-confounder_strength = 0.6 # Determines relative size of majority vs. minority groups
+confounder_strength = 0.9 # Determines relative size of majority vs. minority groups
 dataset_name = 'waterbird_complete'+"{:0.2f}".format(confounder_strength)[-2:]+'_forest2water2'
 ######################################################################################
 
@@ -124,7 +124,6 @@ for split, split_label in [(0, 'train'), (1, 'val'), (2, 'test')]:
     print(f"y = 0, c = 1: {np.mean(split_df.loc[split_df['y'] == 0, 'place'] == 1):.3f}, n = {np.sum((split_df['y'] == 0) & (split_df['place'] == 1))}")
     print(f"y = 1, c = 0: {np.mean(split_df.loc[split_df['y'] == 1, 'place'] == 0):.3f}, n = {np.sum((split_df['y'] == 1) & (split_df['place'] == 0))}")
     print(f"y = 1, c = 1: {np.mean(split_df.loc[split_df['y'] == 1, 'place'] == 1):.3f}, n = {np.sum((split_df['y'] == 1) & (split_df['place'] == 1))}")
-exit()
 
 ### Assign places to train, val, and test set
 place_ids_df = pd.read_csv(

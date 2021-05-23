@@ -32,7 +32,7 @@ from torch.utils.data import Sampler, DataLoader
 from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC, ReBiasModels
 
 from datasets.color_mnist import get_biased_mnist_dataloader
-from datasets.cub_dataset import WaterbirdDataset
+from datasets.cub_dataset import get_waterbird_dataloader
 from torch.autograd import grad
 import models.simpleCNN as scnn
 
@@ -41,12 +41,12 @@ parser = argparse.ArgumentParser(description='OOD training for multi-label class
 parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-distribution dataset e.g. IN-9')
 parser.add_argument('--model-arch', default='resnet18', type=str, help='model architecture e.g. resnet101')
 parser.add_argument('--method', default='erm', type=str, help='method used for model training')
-parser.add_argument('--save-epoch', default= 10, type=int,
+parser.add_argument('--save-epoch', default=10, type=int,
                     help='save the model every save_epoch, default = 10') # freq; save model state_dict()
 parser.add_argument('--print-freq', '-p', default=10, type=int,
                     help='print frequency (default: 10)') # print every print-freq batches during training
 # ID train & val batch size
-parser.add_argument('-b', '--batch-size', default= 64, type=int,
+parser.add_argument('-b', '--batch-size', default=64, type=int,
                     help='mini-batch size (default: 64) used for training')
 # training schedule
 parser.add_argument('--start-epoch', default=0, type=int,
@@ -77,7 +77,7 @@ parser.add_argument('--erm_debug', default= False, type=bool,
 #                     help='compression rate in transition stage (default: 0.5)')
 # parser.add_argument('--no-bottleneck', dest='bottleneck', action='store_false',
 #                     help='To not use bottleneck block')
-parser.add_argument('--data_label_correlation', default= 1, type=float,
+parser.add_argument('--data_label_correlation', default=1, type=float,
                     help='data_label_correlation')
 # saving, naming and logging
 parser.add_argument('--resume', default='', type=str,
@@ -110,8 +110,7 @@ state = {k: v for k, v in args._get_kwargs()}
 # print(state)
 
 directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
-if not os.path.exists(directory):
-    os.makedirs(directory)
+os.makedirs(directory, exist_ok=True)
 save_state_file = os.path.join(directory, 'args.txt')
 fw = open(save_state_file, 'w')
 print(state, file=fw)
@@ -222,13 +221,10 @@ def main():
                                             train=False, partial=True, cmap = "1")
             lr_schedule=[50, 75, 90]
     elif args.in_dataset == "waterbird":
-        train_dataset = WaterbirdDataset(data_correlation=0.95, train=True)
-        print(len(train_dataset))
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
-        val_dataset = WaterbirdDataset(data_correlation=0.95, train=False)
-        print(len(val_dataset))
-        val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+        train_loader = get_waterbird_dataloader(args, data_label_correlation=args.data_label_correlation, train=True)
+        val_loader = get_waterbird_dataloader(args, data_label_correlation=args.data_label_correlation, train=False)
         lr_schedule=[50, 75, 90]
+
     # create model
     # elif args.model_arch == "resnet18":
     #     orig_resnet = torchvision.models.resnet18(pretrained=True)
@@ -265,23 +261,24 @@ def main():
         else:
             model = base_model.cuda()
             criterion = nn.CrossEntropyLoss().cuda()
-
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     elif args.method == "rebias":
         n_g_nets = 1
-        f_model = base_model.cuda()
-        g_model = [base_model.cuda() for _ in range(n_g_nets)]
+        if args.multi_gpu:
+            base_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(base_model)
+            model = base_model.to(device)
+            model = DDP(model, device_ids=[args.local_rank], output_device=args.local_rank)
+            f_model = model.cuda()
+            g_model = [model.cuda() for _ in range(n_g_nets)]
+        else:
+            f_model = base_model.cuda()
+            g_model = [base_model.cuda() for _ in range(n_g_nets)]            
+        f_optimizer = torch.optim.Adam(f_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+        g_optimizer = torch.optim.Adam(flatten([g_net.parameters() for g_net in g_model]), lr=args.lr, weight_decay=args.weight_decay)
     else:
         assert False, 'Not supported method: {}'.format(args.method)
     
     cudnn.benchmark = True
-
-    
-    if args.method == "rebias":
-        f_optimizer = torch.optim.Adam(f_model.parameters(), lr=args.lr)
-        g_optimizer = torch.optim.Adam(flatten([g_net.parameters() for g_net in g_model]), lr=args.lr)
-    else:
-        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-
 
     # optionally resume from a checkpoint
     if args.resume:
@@ -322,6 +319,14 @@ def main():
     elif args.in_dataset == "waterbird":
         train_loaders = [train_loader]
 
+    best_validate_prec_epoch = 0
+    best_validate_prec = 0
+    def update_best_validate(epoch, prec, best_validate_prec_epoch, best_validate_prec):
+        if prec >= best_validate_prec:
+            best_validate_prec = prec
+            best_validate_prec_epoch = epoch
+        return best_validate_prec_epoch, best_validate_prec
+
     for epoch in range(args.start_epoch, args.epochs):
         if args.multi_gpu:
             if dist.get_rank() == 0:
@@ -336,33 +341,42 @@ def main():
         if args.method == "rebias":
             rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch)
             prec1 = rebias_validate(f_model, val_loader, epoch, log)
+            best_validate_prec_epoch, best_validate_prec = update_best_validate(epoch, prec1, best_validate_prec_epoch, best_validate_prec)
         elif args.method == "dann" or args.method == "cdann":
             dann_train(model, train_loaders, optimizer, epoch, args.epochs, cdann=(args.method == "cdann"))
             prec1 = dann_validate(model, val_loader, epoch, log, cdann=(args.method == "cdann"))      
+            best_validate_prec_epoch, best_validate_prec = update_best_validate(epoch, prec1, best_validate_prec_epoch, best_validate_prec)
         elif args.method == "mixup":
             mixup_alpha = 1
             mixup_train(model, optimizer, train_loader1, train_loader2, criterion, mixup_alpha, epoch, log)
             prec1 = validate(val_loader, model, criterion, epoch, log)         
+            best_validate_prec_epoch, best_validate_prec = update_best_validate(epoch, prec1, best_validate_prec_epoch, best_validate_prec)
         elif args.method == "irm":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            irm_train_v2(model, train_loaders, criterion, optimizer, epoch)  
+            irm_train_v2(model, train_loaders, criterion, optimizer, epoch, log)  
             prec1 = validate(val_loader, model, criterion, epoch, log)      
+            best_validate_prec_epoch, best_validate_prec = update_best_validate(epoch, prec1, best_validate_prec_epoch, best_validate_prec)
         elif args.method == "rex":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            rex_train(model, train_loaders, criterion, optimizer, epoch)  
+            rex_train(model, train_loaders, criterion, optimizer, epoch, log)  
             prec1 = validate(val_loader, model, criterion, epoch, log)  
+            best_validate_prec_epoch, best_validate_prec = update_best_validate(epoch, prec1, best_validate_prec_epoch, best_validate_prec)
         elif args.method == "gdro":
             adjust_learning_rate(optimizer, epoch, lr_schedule)
-            gdro_train(model, train_loaders, criterion, optimizer, epoch)  
+            gdro_train(model, train_loaders, criterion, optimizer, epoch, log)  
             prec1 = validate(val_loader, model, criterion, epoch, log)  
+            best_validate_prec_epoch, best_validate_prec = update_best_validate(epoch, prec1, best_validate_prec_epoch, best_validate_prec)
         elif args.method == "erm":
             # adjust_learning_rate(optimizer, epoch, lr_schedule)
             if not args.erm_debug:
                 train(model, train_loaders, criterion, optimizer, epoch, log) 
                 prec1 = validate(val_loader, model, criterion, epoch, log)
+                best_validate_prec_epoch, best_validate_prec = update_best_validate(epoch, prec1, best_validate_prec_epoch, best_validate_prec)
             else:
                 train_erm_debug(train_loaders, model, clsfier, criterion, optimizer, epoch, log) 
                 prec1 = validate_erm_debug(val_loader, model, clsfier, criterion, epoch, log)
+        if args.method == "rebias":
+            model = f_model
         if  (epoch + 1) % args.save_epoch == 0:
             if args.multi_gpu and dist.get_rank() == 0:
                 save_checkpoint({
@@ -374,7 +388,17 @@ def main():
                         'epoch': epoch + 1,
                         'state_dict_model': model.state_dict(),
                 }, epoch + 1) 
-    
+        if epoch == best_validate_prec_epoch:
+            if args.multi_gpu and dist.get_rank() == 0:
+                save_checkpoint({
+                        'epoch': epoch + 1,
+                        'state_dict_model': model.module.state_dict(),
+                }, epoch + 1, name="best") 
+            else:
+                save_checkpoint({
+                        'epoch': epoch + 1,
+                        'state_dict_model': model.state_dict(),
+                }, epoch + 1, name="best") 
 
 def train(model, train_loaders, criterion, optimizer, epoch, log):
     """Train for one epoch on the training set"""
@@ -431,7 +455,6 @@ def train(model, train_loaders, criterion, optimizer, epoch, log):
     if args.tensorboard:
         log_value('nat_train_loss', nat_losses.avg, epoch)
         log_value('nat_train_acc', nat_top1.avg, epoch)
-
 
 def train_erm_debug(train_loaders, model, clsfier, criterion, optimizer, epoch, log):
     """Train for one epoch on the training set"""
@@ -518,7 +541,7 @@ def validate_erm_debug(val_loader, model, clsfier, criterion, epoch, log):
                         i, len(val_loader), batch_time=batch_time, loss=losses,
                         top1=top1))
 
-    print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+    log.debug(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
     # log to TensorBoard
     if args.tensorboard:
         log_value('val_loss', losses.avg, epoch)
@@ -545,7 +568,6 @@ def mixup_train(model, optimizer, train_loader1, train_loader2, criterion, mixup
         loss = loss_1 + loss_2
         loss.backward()
         optimizer.step()
-
 
 def train_contrast(train_loader1, train_loader2, model, clsfier, criterion, optimizer, epoch, log):
     """Train for one epoch on the training set"""
@@ -619,7 +641,7 @@ def irm_train(model, train_loaders, criterion, optimizer, epoch):
   dummy_w = torch.nn.Parameter(torch.Tensor([1.0])).cuda()
   batch_idx = 0
   penalty_multiplier = epoch ** 1.1
-  print(f'Using penalty multiplier {penalty_multiplier}')
+  log.debug(f'Using penalty multiplier {penalty_multiplier}')
   while True:
         optimizer.zero_grad()
         error = 0
@@ -637,14 +659,14 @@ def irm_train(model, train_loaders, criterion, optimizer, epoch):
         (error + penalty_multiplier * penalty).backward()
         optimizer.step()
         if batch_idx % 10 == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tIRM loss: {:.6f}\tGrad penalty: {:.6f}'.format(
+            log.debug('Train Epoch: {} [{}/{} ({:.0f}%)]\tIRM loss: {:.6f}\tGrad penalty: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loaders[0]),
                     100. * batch_idx / len(train_loaders[0]), error.item(), penalty.item()))
         # print('First 20 logits', output.data.cpu().numpy()[:20])
 
         batch_idx += 1
 
-def irm_train_v2(model, train_loaders, criterion, optimizer, epoch):
+def irm_train_v2(model, train_loaders, criterion, optimizer, epoch, log):
     '''
     F.cross_entropy()
 
@@ -654,7 +676,7 @@ def irm_train_v2(model, train_loaders, criterion, optimizer, epoch):
     dummy_w = torch.nn.Parameter(torch.Tensor([1.0])).cuda()
     batch_idx = 0
     penalty_multiplier = epoch ** 1.1
-    print(f'Using penalty multiplier {penalty_multiplier}')
+    log.debug(f'Using penalty multiplier {penalty_multiplier}')
     while True:
         error = 0
         penalty = 0
@@ -676,14 +698,14 @@ def irm_train_v2(model, train_loaders, criterion, optimizer, epoch):
         optimizer.step()
 
         if batch_idx % 10 == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tIRM_V2 loss: {:.6f}\tGrad penalty: {:.6f}'.format(
+            log.debug('Train Epoch: {} [{}/{} ({:.0f}%)]\tIRM_V2 loss: {:.6f}\tGrad penalty: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loaders[0]),
                     100. * batch_idx / len(train_loaders[0]), error.item(), penalty.item()))
         # print('First 20 logits', output.data.cpu()numpy()[:20])
 
         batch_idx += 1
 
-def rex_train(model, train_loaders, criterion, optimizer, epoch):
+def rex_train(model, train_loaders, criterion, optimizer, epoch, log):
     '''
     REx adapted from DomainBed: https://github.com/facebookresearch/DomainBed/blob/master/domainbed/algorithms.py
     '''
@@ -710,14 +732,14 @@ def rex_train(model, train_loaders, criterion, optimizer, epoch):
         (mean + penalty_multiplier * penalty).backward()
         optimizer.step()
         if batch_idx % 10 == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tREx loss: {:.6f}\tGrad penalty: {:.6f}'.format(
+            log.debug('Train Epoch: {} [{}/{} ({:.0f}%)]\tREx loss: {:.6f}\tGrad penalty: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loaders[0]),
                     100. * batch_idx / len(train_loaders[0]), mean.item(), penalty.item()))
         # print('First 20 logits', output.data.cpu()numpy()[:20])
 
         batch_idx += 1
 
-def gdro_train(model, train_loaders, criterion, optimizer, epoch):
+def gdro_train(model, train_loaders, criterion, optimizer, epoch, log):
     '''
     GDRO (Robust ERM) minimizes the error of the worst group/domain/env
     Algorithm 1 from [https://arxiv.org/pdf/1911.08731.pdf]
@@ -746,7 +768,7 @@ def gdro_train(model, train_loaders, criterion, optimizer, epoch):
         loss.backward()
         optimizer.step()
         if batch_idx % 10 == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tGDRO loss: {:.6f}'.format(
+            log.debug('Train Epoch: {} [{}/{} ({:.0f}%)]\tGDRO loss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loaders[0]),
                     100. * batch_idx / len(train_loaders[0]), loss.item()))
         batch_idx += 1
@@ -846,7 +868,7 @@ def rebias_validate(f_model, val_loader, epoch, log):
                         i, len(val_loader), batch_time=batch_time, loss=losses,
                         top1=top1))
 
-    print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+    log.debug(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
     # log to TensorBoard
     if args.tensorboard:
         log_value('val_loss', losses.avg, epoch)
@@ -1020,7 +1042,7 @@ def validate(val_loader, model, criterion, epoch, log):
                         i, len(val_loader), batch_time=batch_time, loss=losses,
                         top1=top1))
 
-    print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+    log.debug(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
     # log to TensorBoard
     if args.tensorboard:
         log_value('val_loss', losses.avg, epoch)
@@ -1046,12 +1068,11 @@ def adjust_learning_rate(optimizer, epoch, lr_schedule=[50, 75, 90]):
 def save_checkpoint(state, epoch, name = None):
     """Saves checkpoint to disk"""
     directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+    os.makedirs(directory, exist_ok=True)
     if name == None:
         filename = directory + 'checkpoint_{}.pth.tar'.format(epoch)
     else: 
-        filename = directory + '{}_{}.pth.tar'.format(name, epoch)
+        filename = directory + 'checkpoint_{}.pth.tar'.format(name)
     torch.save(state, filename)
 
 class AverageMeter(object):
