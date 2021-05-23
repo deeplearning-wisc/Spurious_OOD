@@ -224,11 +224,12 @@ def main():
     elif args.in_dataset == 'random':
         out_datasets = ['red_rectangle', 'green_rectangle']
     elif args.in_dataset == 'color_mnist':
-        out_datasets = ['dtd','SVHN', 'iSUN','LSUN_resize']
-        # out_datasets = ['partial_color_mnist_0&1']
+        out_datasets = ['partial_color_mnist_0&1']
          # out_datasets = ['partial_color_mnist']
     elif args.in_dataset == 'waterbird':
         out_datasets = ['placesbg']
+    elif args.in_dataset == 'color_mnist_multi':
+        out_datasets = ['partial_color_mnist_0&1']
     # load model and store test results
 
 

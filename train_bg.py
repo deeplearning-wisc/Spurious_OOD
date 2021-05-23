@@ -347,7 +347,7 @@ def main():
             prec1 = dann_validate(model, val_loader, epoch, log, cdann=(args.method == "cdann"))      
             best_validate_prec_epoch, best_validate_prec = update_best_validate(epoch, prec1, best_validate_prec_epoch, best_validate_prec)
         elif args.method == "mixup":
-            mixup_alpha = 1
+            mixup_alpha = 2
             mixup_train(model, optimizer, train_loader1, train_loader2, criterion, mixup_alpha, epoch, log)
             prec1 = validate(val_loader, model, criterion, epoch, log)         
             best_validate_prec_epoch, best_validate_prec = update_best_validate(epoch, prec1, best_validate_prec_epoch, best_validate_prec)

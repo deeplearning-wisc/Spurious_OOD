@@ -71,6 +71,8 @@ def main():
                     save_dir = "results_binary/" + args.name
                 elif args.in_dataset == "waterbird":
                     save_dir = "results_waterbird/" + args.name
+                elif args.in_dataset == "color_mnist_multi":
+                    save_dir = "results_multi/" + args.name
                 save_name = "energy_" + out_dataset + "_" + args.name + ".png"
                 plt.savefig(os.path.join(save_dir, save_name), bbox_inches='tight')
         print("Avg FPR95: ", round(100 * all_results["FPR95"]/len(out_datasets),2))

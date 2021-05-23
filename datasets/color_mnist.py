@@ -75,8 +75,8 @@ class BiasedMNIST(MNIST):
                   [255, 0, 0], [255, 0, 0],[0, 255, 0], [0, 255, 0], [0, 255, 0]]  
     COLOUR_MAP4 = [[255, 255, 0], [255, 192, 203], [0, 0, 255], [225, 225, 0], [225, 0, 225],
                   [255, 0, 0], [255, 0, 0],[0, 255, 0], [0, 255, 0], [0, 255, 0]]   
-    # COLOUR_MAP2 = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], 
-    #                 [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]]
+    COLOUR_MAP5 = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], 
+                    [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]]
 
 
     def __init__(self, root, cmap, train=True, transform=None, target_transform=None,
@@ -222,6 +222,8 @@ class ColourBiasedMNIST(BiasedMNIST):
             label = self.COLOUR_MAP3[label]
         elif cmap == "4":
             label = self.COLOUR_MAP4[label]
+        elif cmap == "5":
+            label = self.COLOUR_MAP5[label]
 
         return self._binary_to_colour(self.data[indices], label), self.targets[indices]
 
@@ -236,7 +238,7 @@ def get_biased_mnist_dataloader(args, root, batch_size, data_label_correlation, 
     dataset = ColourBiasedMNIST(root, train=train, transform=transform,
                                 download=True, data_label_correlation=data_label_correlation,
                                 n_confusing_labels=n_confusing_labels, partial=partial, cmap = cmap)
-    if args.multi_gpu:
+    if args is not None and args.multi_gpu:
             ddp_sampler = DistributedSampler(dataset, num_replicas=args.n_gpus, rank=args.local_rank)
             dataloader = data.DataLoader(dataset=dataset,
                                     batch_size=batch_size,
@@ -254,7 +256,7 @@ def generate_custom_ood_dataset(name, save_labels, data_label_correlation = 1, n
     loader = get_biased_mnist_dataloader(args = None, root = './datasets/MNIST', batch_size=1,
                                             data_label_correlation= data_label_correlation,
                                             n_confusing_labels= n_confusing_labels,
-                                            train=train, partial=partial, cmap = "2")
+                                            train=train, partial=partial, cmap = "5")
     idx_to_class = {v: k for k, v in loader.dataset.class_to_idx.items()}
     result_path = f"datasets/ood_datasets/{name}"
     for i, (images, labels, _) in enumerate(loader):
@@ -320,4 +322,5 @@ if __name__ == "__main__":
     #                                         train=True, partial=True)
     # generate_custom_ood_dataset("exam_train_set", save_labels = [0,1,2,3,4,5,6,7,8,9], data_label_correlation= 0.1,
     #                                         n_confusing_labels= 4, train=True, partial=True)
-    generate_custom_ood_dataset("cross-bias", save_labels=[0,1], data_label_correlation=1, n_confusing_labels= 4, train=True, partial=True)
+    # generate_custom_ood_dataset("cross-bias", save_labels=[0,1], data_label_correlation=1, n_confusing_labels= 4, train=True, partial=True)
+    generate_custom_ood_dataset("mnist_5_9", save_labels=[5,6,7,8,9], data_label_correlation=1, n_confusing_labels=4, train=False, partial=True)

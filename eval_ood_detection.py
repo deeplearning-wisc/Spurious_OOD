@@ -252,9 +252,9 @@ def eval_ood_detector(base_dir, in_dataset, out_datasets, batch_size, method, me
 
     method_args['num_classes'] = num_classes
 
-    if args.model_arch == "resnet18":
-        model = res18(n_classes=args.num_classes, method=args.method)
-    elif args.model_arch == "general_model":
+    # if args.model_arch == "resnet18":
+    #     model = res18(n_classes=args.num_classes, method=args.method)
+    if args.model_arch == "general_model":
         model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     elif args.model_arch == 'densenet':
         model = dn.DenseNet3(args.layers, num_classes + num_reject_classes, normalizer=normalizer)
@@ -272,10 +272,10 @@ def eval_ood_detector(base_dir, in_dataset, out_datasets, batch_size, method, me
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
-    if args.in_dataset == "color_mnist":
-        checkpoint = torch.load("./checkpoints/{in_dataset}_res18/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=in_dataset, name=name, epochs=epochs))
-    else:
-        checkpoint = torch.load("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=in_dataset, name=name, epochs=epochs))
+    # if args.in_dataset == "color_mnist":
+    #     checkpoint = torch.load("./checkpoints/{in_dataset}_res18/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=in_dataset, name=name, epochs=epochs))
+    # else:
+    checkpoint = torch.load("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=in_dataset, name=name, epochs=epochs))
     
     if args.model_arch == 'densenet_ccu':
         whole_model.load_state_dict(checkpoint['state_dict'])
@@ -384,6 +384,19 @@ def eval_ood_detector(base_dir, in_dataset, out_datasets, batch_size, method, me
                                         transform=val_transform)
             testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size,
                                              shuffle=True, num_workers=2)
+        elif 'mnist_5_9' in out_dataset:
+            val_transform = transforms.Compose([
+                transforms.Grayscale(3),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=(0.5, 0.5, 0.5),
+                             std=(0.5, 0.5, 0.5)),
+                ])
+            dataset = torchvision.datasets.MNIST(root="./datasets", train=False, transform=val_transform)
+            idx = dataset.targets >= 5
+            dataset.targets = dataset.targets[idx]
+            dataset.data = dataset.data[idx]
+            testloaderOut = torch.utils.data.DataLoader(dataset, batch_size=args.ood_batch_size,
+                                             shuffle=True, num_workers=2)            
         else:
             testsetout = torchvision.datasets.ImageFolder("./datasets/ood_datasets/{}".format(out_dataset),
                                         transform=val_transform)
@@ -434,7 +447,10 @@ if __name__ == '__main__':
     elif args.in_dataset == "SVHN":
         out_datasets = ['LSUN', 'LSUN_resize', 'iSUN', 'dtd']
     elif args.in_dataset == 'color_mnist':
-        out_datasets = ['dtd','SVHN', 'iSUN','LSUN_resize']
+        out_datasets = ['dtd', 'iSUN', 'LSUN_resize']
+        # out_datasets = ['dtd','SVHN', 'iSUN','LSUN_resize']
+        # out_datasets = ['mnist_5_9']
+        # out_datasets = ['SVHN']
         # out_datasets = ['partial_color_mnist_0&1','SVHN']
 
     print("checking args...")
