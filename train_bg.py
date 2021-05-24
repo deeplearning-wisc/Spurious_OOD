@@ -235,8 +235,11 @@ def main():
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     elif args.model_arch == "resnet18":
         base_model = res18(n_classes=args.num_classes, method=args.method)
-    elif args.model_arch == "resnet50":
-        base_model = res50(n_classes=args.num_classes, method=args.method)
+    elif args.model_arch == "resnet50":   
+        if args.in_dataset == "waterbird":
+            base_model = res50(n_classes=args.num_classes, method=args.method, domain_num=4)
+        else:
+            base_model = res50(n_classes=args.num_classes, method=args.method)
     else:
         assert False, 'Not supported model arch: {}'.format(args.model_arch)
 
@@ -941,11 +944,14 @@ def dann_train(model, train_loaders, optimizer, epoch, n_epoch, cdann=False):
             p = float(i + epoch * len_loader) / n_epoch / len_loader
             alpha = 2. / (1. + np.exp(-10 * p)) - 1
             model.train()
-            data, target, _ = next(loader, (None, None, None))
+            data, target, env = next(loader, (None, None, None))
             if data is None:
                 return
             data, target = data.cuda(), target.cuda()
-            domain_label = torch.full([len(data)], i).long().cuda()
+            if len(train_loaders) == 1:
+                domain_label = env.long().cuda()
+            else:
+                domain_label = torch.full([len(data)], i).long().cuda()
             if cdann:
                 _, class_output, domain_output = model(input_data=data, alpha=alpha, y=target)
                 y_counts = F.one_hot(target).sum(dim=0)

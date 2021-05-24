@@ -19,6 +19,12 @@ class WaterbirdDataset(Dataset):
             'val': 1,
             'test': 2
         }
+        self.env_dict = {
+            (0, 0): 0,
+            (0, 1): 1,
+            (1, 0): 2,
+            (1, 1): 3
+        }
         self.train = train
         self.dataset_name = "waterbird_complete"+"{:0.2f}".format(data_correlation)[-2:]+"_forest2water2"
         self.dataset_dir = os.path.join("datasets", self.dataset_name)
@@ -31,8 +37,9 @@ class WaterbirdDataset(Dataset):
             self.metadata_df = self.metadata_df[self.metadata_df['split']==self.split_dict['train']]
         else:
             self.metadata_df = self.metadata_df[self.metadata_df['split']==self.split_dict['test']]
-        
+
         self.y_array = self.metadata_df['y'].values
+        self.place_array = self.metadata_df['place'].values
         self.filename_array = self.metadata_df['img_filename'].values
         self.transform = get_transform_cub(self.train)
 
@@ -41,13 +48,14 @@ class WaterbirdDataset(Dataset):
     
     def __getitem__(self, idx):
         y = self.y_array[idx]
+        place = self.place_array[idx]
         img_filename = os.path.join(
             self.dataset_dir,
             self.filename_array[idx])
         img = Image.open(img_filename).convert('RGB')
         img = self.transform(img)
 
-        return img, y, y
+        return img, y, self.env_dict[(y, place)]
     
 def get_transform_cub(train):
     scale = 256.0/224.0
@@ -92,6 +100,13 @@ def get_waterbird_dataloader(args, data_label_correlation, train=True):
                                     **kwargs)
     return dataloader
 
+
 if __name__ == "__main__":
-    print(len(WaterbirdDataset(data_correlation=0.95, train=True)))
-    print(len(WaterbirdDataset(data_correlation=0.95, train=False)))
+    import argparse
+    parser = argparse.ArgumentParser(description='OOD training for multi-label classification')
+    parser.add_argument('-b', '--batch-size', default=64, type=int,
+                    help='mini-batch size (default: 64) used for training')
+    parser.add_argument('--multi-gpu', default=False, type=bool)
+    args = parser.parse_args()
+
+    dataloader = get_waterbird_dataloader(args, 0.9, train=True)

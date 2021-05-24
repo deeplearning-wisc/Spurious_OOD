@@ -56,7 +56,7 @@ class res18(nn.Module):
         return feature, class_output
 
 class res50(nn.Module):
-    def __init__(self, n_classes, method="dann"):
+    def __init__(self, n_classes, method="dann", domain_num=2):
         super(res50, self).__init__()
         self.n_classes = n_classes
         self.method = method
@@ -76,7 +76,7 @@ class res50(nn.Module):
             self.domain_classifier.add_module('d_fc1', nn.Linear(self.d, 100))
             self.domain_classifier.add_module('d_bn1', nn.BatchNorm1d(100))
             self.domain_classifier.add_module('d_relu1', nn.ReLU(True))
-            self.domain_classifier.add_module('d_fc2', nn.Linear(100, 2))
+            self.domain_classifier.add_module('d_fc2', nn.Linear(100, domain_num))
 
             self.class_embeddings = nn.Embedding(self.n_classes, self.d)
     
