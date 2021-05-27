@@ -68,7 +68,7 @@ def main():
                 plt.ylim(0, 0.3)
                 plt.xlim(-10, 20)
                 if args.in_dataset == "color_mnist":
-                    save_dir = "results_binary/" + args.name
+                    save_dir = "results_binary_rebias/" + args.name
                 elif args.in_dataset == "waterbird":
                     save_dir = "results_waterbird/" + args.name
                 elif args.in_dataset == "color_mnist_multi":

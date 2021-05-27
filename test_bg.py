@@ -109,6 +109,29 @@ directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset
 # use_cuda = torch.cuda.is_available()
 # if use_cuda:
 #     torch.cuda.manual_seed_all(1)
+os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_ids
+if torch.cuda.is_available():
+    torch.cuda.set_device(args.local_rank)
+device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
+args.n_gpus =torch.cuda.device_count()
+if args.n_gpus > 1:
+    import torch.distributed as dist
+    import torch.multiprocessing as mp
+    from torch.utils.data.distributed import DistributedSampler
+    from torch.nn.parallel import DistributedDataParallel as DDP
+    # import apex
+    # from apex.parallel import DistributedDataParallel as DDP
+    # from apex import amp
+    args.multi_gpu = True
+    torch.distributed.init_process_group(
+        'nccl',
+        init_method='env://',
+        world_size=args.n_gpus,
+        rank=args.local_rank,
+    )
+    # devices = list(range(args.n_gpus))
+else:
+    args.multi_gpu = False
 
 def main():
 
@@ -199,7 +222,10 @@ def main():
     elif args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     elif args.model_arch == "resnet50":
-        base_model = res50(n_classes=args.num_classes, method=args.method)
+        if args.in_dataset == "waterbird":
+            base_model = res50(n_classes=args.num_classes, method=args.method, domain_num=4)
+        else:
+            base_model = res50(n_classes=args.num_classes, method=args.method)
     elif args.model_arch == "resnet18":
         base_model = res18(n_classes=args.num_classes, method=args.method)
     else:

@@ -23,7 +23,7 @@ import models.densenet as dn
 import models.wideresnet as wn
 import models.resnet as rn
 import models.simplenet as sn
-from models import CNNModel, res50, res18
+from models import CNNModel, res50, res18, bagnet18, SimpleConvNet
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
 # from torch.distributions.multivariate_normal import MultivariateNormal
@@ -275,7 +275,14 @@ def main():
             g_model = [model.cuda() for _ in range(n_g_nets)]
         else:
             f_model = base_model.cuda()
-            g_model = [base_model.cuda() for _ in range(n_g_nets)]            
+            if args.in_dataset == "waterbird":
+                bnet = bagnet18(feature_pos='post', num_classes=2)
+                g_model = [bnet.cuda() for _ in range(n_g_nets)]     
+            elif args.in_dataset == "color_mnist":
+                simnet = SimpleConvNet(num_classes=args.num_classes, kernel_size=1)
+                g_model = [simnet.cuda() for _ in range(n_g_nets)]     
+            else:
+                g_model = [base_model.cuda() for _ in range(n_g_nets)]            
         f_optimizer = torch.optim.Adam(f_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         g_optimizer = torch.optim.Adam(flatten([g_net.parameters() for g_net in g_model]), lr=args.lr, weight_decay=args.weight_decay)
     else:
