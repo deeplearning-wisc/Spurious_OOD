@@ -38,6 +38,7 @@ import models.simpleCNN as scnn
 
 parser = argparse.ArgumentParser(description='OOD training for multi-label classification')
 
+parser.add_argument('--exp-name', default="erm_r_0_5_2021-05-25", type=str, help='help identify checkpoint')
 parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-distribution dataset e.g. IN-9')
 parser.add_argument('--model-arch', default='resnet18', type=str, help='model architecture e.g. resnet101')
 parser.add_argument('--method', default='erm', type=str, help='method used for model training')
@@ -109,7 +110,9 @@ args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
 # print(state)
 
-directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
+# directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
+directory = "/nobackup-slow/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, 
+            name=args.name, exp=args.exp_name)
 os.makedirs(directory, exist_ok=True)
 save_state_file = os.path.join(directory, 'args.txt')
 fw = open(save_state_file, 'w')
@@ -1080,7 +1083,9 @@ def adjust_learning_rate(optimizer, epoch, lr_schedule=[50, 75, 90]):
 
 def save_checkpoint(state, epoch, name = None):
     """Saves checkpoint to disk"""
-    directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
+    # directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
+    directory = "/nobackup-slow/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, 
+            name=args.name, exp=args.exp_name)
     os.makedirs(directory, exist_ok=True)
     if name == None:
         filename = directory + 'checkpoint_{}.pth.tar'.format(epoch)
