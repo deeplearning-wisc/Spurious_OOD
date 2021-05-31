@@ -224,6 +224,8 @@ if __name__ == '__main__':
         out_datasets = ['dtd', 'iSUN', 'LSUN_resize']
         # out_datasets = ['mnist_5_9']
         # out_datasets = ['SVHN']
+    elif args.in_dataset == 'waterbird':
+        out_datasets = ['mnist']
     all_fprs = dict()
     for epochs in args.epochs.split():
         all_fprs[epochs] = compute_traditional_ood(args.base_dir, args.in_dataset, out_datasets, args.method, args.name, epochs)

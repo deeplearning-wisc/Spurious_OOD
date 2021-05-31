@@ -32,6 +32,7 @@ def main():
     elif args.in_dataset == "color_mnist" or args.in_dataset == "color_mnist_multi":
         out_datasets = ['partial_color_mnist_0&1']
         # out_datasets = ['partial_color_mnist']
+        # out_datasets = ['dtd', 'iSUN', 'LSUN_resize']
     elif args.in_dataset == "waterbird":
         out_datasets = ['placesbg']
     fprs = dict()
@@ -68,13 +69,13 @@ def main():
                 plt.ylim(0, 0.3)
                 plt.xlim(-10, 20)
                 if args.in_dataset == "color_mnist":
-                    save_dir = "results_binary/" + args.name
+                    save_res_dir = "results_new/" + args.name
                 elif args.in_dataset == "waterbird":
-                    save_dir = "results_waterbird/" + args.name
+                    save_res_dir = "results_waterbird/" + args.name
                 elif args.in_dataset == "color_mnist_multi":
-                    save_dir = "results_multi/" + args.name
+                    save_res_dir = "results_multi/" + args.name
                 save_name = "energy_" + out_dataset + "_" + args.name + ".png"
-                plt.savefig(os.path.join(save_dir, save_name), bbox_inches='tight')
+                plt.savefig(os.path.join(save_res_dir, save_name), bbox_inches='tight')
         print("Avg FPR95: ", round(100 * all_results["FPR95"]/len(out_datasets),2))
         print("Avg AUROC: ", round(all_results["AUROC"]/len(out_datasets),4))
         print("Avg AUPR: ", round(all_results["AUPR"]/len(out_datasets),4))

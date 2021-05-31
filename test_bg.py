@@ -41,6 +41,7 @@ import utils.svhn_loader as svhn
 
 parser = argparse.ArgumentParser(description='OOD Detection Evaluation based on Energy-score')
 
+parser.add_argument('--exp-name', default="erm_r_0_5_2021-05-25", type=str, help='help identify checkpoint')
 parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-distribution dataset')
 parser.add_argument('--model-arch', default='resnet18', type=str, help='model architecture e.g. resnet101')
 parser.add_argument('--method', default='dann', type=str, help='method used for model training')
@@ -109,6 +110,30 @@ directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset
 # use_cuda = torch.cuda.is_available()
 # if use_cuda:
 #     torch.cuda.manual_seed_all(1)
+os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_ids
+if torch.cuda.is_available():
+    torch.cuda.set_device(args.local_rank)
+device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
+args.n_gpus =torch.cuda.device_count()
+if args.n_gpus > 1:
+    import torch.distributed as dist
+    import torch.multiprocessing as mp
+    from torch.utils.data.distributed import DistributedSampler
+    from torch.nn.parallel import DistributedDataParallel as DDP
+    # import apex
+    # from apex.parallel import DistributedDataParallel as DDP
+    # from apex import amp
+    args.multi_gpu = True
+    torch.distributed.init_process_group(
+        'nccl',
+        init_method='env://',
+        world_size=args.n_gpus,
+        rank=args.local_rank,
+    )
+    # devices = list(range(args.n_gpus))
+else:
+    args.multi_gpu = False
+
 
 def main():
 
@@ -225,6 +250,7 @@ def main():
         out_datasets = ['red_rectangle', 'green_rectangle']
     elif args.in_dataset == 'color_mnist':
         out_datasets = ['partial_color_mnist_0&1']
+        #out_datasets = ['dtd', 'iSUN', 'LSUN_resize']
          # out_datasets = ['partial_color_mnist']
     elif args.in_dataset == 'waterbird':
         out_datasets = ['placesbg']
@@ -234,9 +260,12 @@ def main():
 
 
     for test_epoch in test_epochs:
-        print("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=args.in_dataset, name=args.name, epochs= test_epoch))
-        checkpoint = torch.load("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=args.in_dataset, name=args.name, epochs= test_epoch))
+        # print("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=args.in_dataset, name=args.name, epochs= test_epoch))
+        # checkpoint = torch.load("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=args.in_dataset, name=args.name, epochs= test_epoch))
         # model.load_state_dict(checkpoint['state_dict'])
+        cpts_directory = "/nobackup/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
+        cpts_dir = os.path.join(cpts_directory, "checkpoint_{epochs}.pth.tar".format(epochs=test_epoch))
+        checkpoint = torch.load(cpts_dir)
         model.load_state_dict(checkpoint['state_dict_model'])
         model.eval()
         model.cuda()
@@ -594,7 +623,7 @@ def get_ood_loader(out_dataset, CAM = False):
             #                                 n_confusing_labels= 9,
             #                                 train=False, partial=True)
         else:
-            testsetout = torchvision.datasets.ImageFolder("/nobackup-slow/dataset/background/{}/val".format(out_dataset),
+            testsetout = torchvision.datasets.ImageFolder("./datasets/ood_datasets/{}".format(out_dataset),
                                         transform= val_transform)
             testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size,
                                              shuffle=True, num_workers=2)
