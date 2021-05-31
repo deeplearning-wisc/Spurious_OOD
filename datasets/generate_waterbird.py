@@ -16,7 +16,7 @@ target_places = [
     ['ocean', 'lake/natural']]              # Water backgrounds
 
 val_frac = 0.2             # What fraction of the training data to use as validation
-confounder_strength = 1    # Determines relative size of majority vs. minority groups
+confounder_strength = 0.9    # Determines relative size of majority vs. minority groups
 dataset_name = 'waterbird_complete'+"{:0.2f}".format(confounder_strength)[-2:]+'_forest2water2'
 ######################################################################################
 

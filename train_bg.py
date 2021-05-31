@@ -23,7 +23,7 @@ import models.densenet as dn
 import models.wideresnet as wn
 import models.resnet as rn
 import models.simplenet as sn
-from models import CNNModel, res50, res18
+from models import CNNModel, res50, res18, bagnet18, SimpleConvNet
 # used for logging to TensorBoard
 from tensorboard_logger import configure, log_value
 # from torch.distributions.multivariate_normal import MultivariateNormal
@@ -110,7 +110,9 @@ args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
 # print(state)
 
-directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
+# directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
+directory = "/nobackup-slow/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, 
+            name=args.name, exp=args.exp_name)
 os.makedirs(directory, exist_ok=True)
 save_state_file = os.path.join(directory, 'args.txt')
 fw = open(save_state_file, 'w')
@@ -276,7 +278,14 @@ def main():
             g_model = [model.cuda() for _ in range(n_g_nets)]
         else:
             f_model = base_model.cuda()
-            g_model = [base_model.cuda() for _ in range(n_g_nets)]            
+            if args.in_dataset == "waterbird":
+                bnet = bagnet18(feature_pos='post', num_classes=2)
+                g_model = [bnet.cuda() for _ in range(n_g_nets)]     
+            elif args.in_dataset == "color_mnist":
+                simnet = SimpleConvNet(num_classes=args.num_classes, kernel_size=1)
+                g_model = [simnet.cuda() for _ in range(n_g_nets)]     
+            else:
+                g_model = [base_model.cuda() for _ in range(n_g_nets)]            
         f_optimizer = torch.optim.Adam(f_model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
         g_optimizer = torch.optim.Adam(flatten([g_net.parameters() for g_net in g_model]), lr=args.lr, weight_decay=args.weight_decay)
     else:
@@ -1076,6 +1085,8 @@ def save_checkpoint(state, epoch, name = None):
     """Saves checkpoint to disk"""
     directory = "/nobackup/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
     # directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
+    # directory = "/nobackup-slow/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, 
+            # name=args.name, exp=args.exp_name)
     os.makedirs(directory, exist_ok=True)
     if name == None:
         filename = directory + 'checkpoint_{}.pth.tar'.format(epoch)

@@ -6,3 +6,4 @@ from .resnet import *
 from .simpleCNN import *
 from .general_model import *
 from .resnet50 import *
+from .bagnet import *

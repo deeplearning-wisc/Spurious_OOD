@@ -134,7 +134,6 @@ if args.n_gpus > 1:
 else:
     args.multi_gpu = False
 
-
 def main():
 
     log = logging.getLogger(__name__)
@@ -224,7 +223,10 @@ def main():
     elif args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     elif args.model_arch == "resnet50":
-        base_model = res50(n_classes=args.num_classes, method=args.method)
+        if args.in_dataset == "waterbird":
+            base_model = res50(n_classes=args.num_classes, method=args.method, domain_num=4)
+        else:
+            base_model = res50(n_classes=args.num_classes, method=args.method)
     elif args.model_arch == "resnet18":
         base_model = res18(n_classes=args.num_classes, method=args.method)
     else:
