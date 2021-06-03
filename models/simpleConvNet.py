@@ -1,3 +1,8 @@
+'''
+Implementation for simple statcked convolutional networks.
+Adapted from https://github.com/clovaai/rebias/blob/master/models/mnist_models.py.
+'''
+
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
