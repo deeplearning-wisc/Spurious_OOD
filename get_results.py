@@ -35,6 +35,8 @@ def main():
         # out_datasets = ['dtd', 'iSUN', 'LSUN_resize']
     elif args.in_dataset == "waterbird":
         out_datasets = ['placesbg']
+    elif args.in_dataset == "celebA":
+        out_datasets = ['celebA_ood']
     fprs = dict()
     for test_epoch in args.test_epochs.split():
         all_results_ntom = []

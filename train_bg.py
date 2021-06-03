@@ -33,6 +33,7 @@ from rebias_utils import SimpleConvNet, RbfHSIC, MinusRbfHSIC, ReBiasModels
 
 from datasets.color_mnist import get_biased_mnist_dataloader
 from datasets.cub_dataset import get_waterbird_dataloader
+from datasets.celebA_dataset import get_celebA_dataloader
 from torch.autograd import grad
 import models.simpleCNN as scnn
 
@@ -172,21 +173,6 @@ def main():
     log.addHandler(fileHandler)
     log.addHandler(streamHandler) 
 
-    # Image trannsform for natural datasets (**Not applicable for ColorMNIST)
-    # normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-    #                                  std=[0.229, 0.224, 0.225])
-    # img_transform = transforms.Compose([
-    #                                     # transforms.RandomResizedCrop((256),scale=(0.5, 2.0)),
-    #                                     transforms.RandomResizedCrop(224),
-    #                                     transforms.RandomHorizontalFlip(),
-    #                                     transforms.ToTensor(),
-    #                                     normalize])
-    # val_transform = transforms.Compose([transforms.Resize(256),
-    #                                     transforms.CenterCrop(224),
-    #                                     transforms.ToTensor(),
-    #                                     normalize])
-    # label_transform = transforms.Compose([ToLabel()])
-
     if args.in_dataset == "color_mnist":
             train_loader1 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
@@ -201,39 +187,15 @@ def main():
                                             n_confusing_labels= args.num_classes - 1,
                                             train=False, partial=True, cmap = "1")
             lr_schedule=[50, 75, 90]
-    elif args.in_dataset == "color_mnist_multi":
-            train_loader1 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
-                                            data_label_correlation= args.data_label_correlation,
-                                            n_confusing_labels= args.num_classes - 1,
-                                            train=True, partial=True, cmap = "1")
-            train_loader2 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
-                                            data_label_correlation= args.data_label_correlation,
-                                            n_confusing_labels= args.num_classes - 1,
-                                            train=True, partial=True, cmap = "2")
-            train_loader3 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
-                                            data_label_correlation= args.data_label_correlation,
-                                            n_confusing_labels= args.num_classes - 1,
-                                            train=True, partial=True, cmap = "3")
-            train_loader4 = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
-                                            data_label_correlation= args.data_label_correlation,
-                                            n_confusing_labels= args.num_classes - 1,
-                                            train=True, partial=True, cmap = "4")
-            val_loader = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
-                                            data_label_correlation= args.data_label_correlation,
-                                            n_confusing_labels= args.num_classes - 1,
-                                            train=False, partial=True, cmap = "1")
-            lr_schedule=[50, 75, 90]
     elif args.in_dataset == "waterbird":
         train_loader = get_waterbird_dataloader(args, data_label_correlation=args.data_label_correlation, train=True)
         val_loader = get_waterbird_dataloader(args, data_label_correlation=args.data_label_correlation, train=False)
         lr_schedule=[50, 75, 90]
+    elif args.in_dataset == "celebA":
+        train_loader = get_celebA_dataloader(args, train=True)
+        val_loader = get_celebA_dataloader(args, train=False)
+        lr_schedule=[50, 75, 90]
 
-    # create model
-    # elif args.model_arch == "resnet18":
-    #     orig_resnet = torchvision.models.resnet18(pretrained=True)
-    #     features = list(orig_resnet.children())
-    #     model = nn.Sequential(*features[0:8])
-    #     clsfier = clssimp(512, args.num_classes)
     if args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     elif args.model_arch == "resnet18":

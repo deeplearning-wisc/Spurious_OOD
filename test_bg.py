@@ -35,6 +35,7 @@ from rebias_utils import SimpleConvNet
 from torch.utils.data import Sampler, DataLoader
 from datasets.color_mnist import get_biased_mnist_dataloader
 from datasets.cub_dataset import WaterbirdDataset
+from datasets.celebA_dataset import get_celebA_dataloader, get_celebA_ood_dataloader
 import cv2
 from torch.utils.data.dataloader import default_collate
 import utils.svhn_loader as svhn
@@ -203,6 +204,9 @@ def main():
     elif args.in_dataset == "waterbird":
         val_dataset = WaterbirdDataset(data_correlation=args.data_label_correlation, train=False)
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+        num_classes = args.num_classes
+    elif args.in_dataset == "celebA":
+        val_loader = get_celebA_dataloader(args, train=False)
         num_classes = args.num_classes
 
     # create model
