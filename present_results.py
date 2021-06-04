@@ -1,37 +1,25 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from utils import anom_utils
-import torch
 import os
-from scipy.io import loadmat
 import argparse
 from collections import defaultdict
 import seaborn as sns
 import pandas as pd
 
-
 parser = argparse.ArgumentParser(description='Present OOD Detection metrics for Energy-score')
-parser.add_argument('--name', '-n', default = "irm_test_0.4_3rd", type=str,
+parser.add_argument('--name', '-n', required = True, type=str,
                     help='name of experiment')
-parser.add_argument('--in-dataset', default='color_mnist', type=str, help='in-distribution dataset e.g. pascal')
+parser.add_argument('--in-dataset', default='color_mnist', type=str, help='in-distribution dataset e.g. color_mnist')
 parser.add_argument('--test_epochs', "-e", default = "10", type=str,
                     help='# epoch to test performance')
-parser.add_argument('--hist', default = True, type=bool,
+parser.add_argument('--hist', default = False, type=bool,
                     help='if need to plot histogram')
 args = parser.parse_args()
 
 def main():
-    # aurocs = {}
-    # fprs = {}
-    if args.in_dataset == "CIFAR-10" or args.in_dataset == "CIFAR-100":
-        out_datasets = ['places365','LSUN', 'LSUN_resize', 'iSUN', 'dtd', 'SVHN']
-        #out_datasets = ["ocean"]
-        # out_datasets = ["CelebA",'SVHN',  "CIFAR-100"]
-    elif args.in_dataset == "IN-9":
-        out_datasets = ['no_fg','only_bg_b', 'places365', 'SVHN', 'ocean']
-    elif args.in_dataset == "color_mnist" or args.in_dataset == "color_mnist_multi":
+    if args.in_dataset == "color_mnist" or args.in_dataset == "color_mnist_multi":
         out_datasets = ['partial_color_mnist_0&1']
-        # out_datasets = ['partial_color_mnist']
         # out_datasets = ['dtd', 'iSUN', 'LSUN_resize']
     elif args.in_dataset == "waterbird":
         out_datasets = ['placesbg']
@@ -49,24 +37,13 @@ def main():
                 ood_sum_energy = np.load(f)
             auroc, aupr, fpr = anom_utils.get_and_print_results(-1 * id_sum_energy, -1 * ood_sum_energy, f"{out_dataset}", f" Energy Sum at epoch {test_epoch}")
             results = cal_metric(known =  -1 * id_sum_energy, novel = -1* ood_sum_energy, method = "energy sum")
-            # print_results(results, args.in_dataset, out_dataset, args.name, "NTOM energy sum")
             all_results_ntom.append(results)
             all_results["AUROC"] += auroc
             all_results["AUPR"] += aupr
             all_results["FPR95"] += fpr
             if args.hist:
                 sns.set(style="white", palette="muted")
-                # sum_energy = pd.DataFrame(data = {"ID":-1 * id_sum_energy, "OOD": -1 * ood_sum_energy})
-                # fig, (ax1) = plt.subplots(1, 1, figsize=(8,8),  sharex=True)
-                # sns.displot(, x="Sum of Energy", kind="kde", fill=True, ax = ax1)
-                # sns.displot(-1 * id_sum_energy, label="id", color = "g", kde=False, ax = ax1 )
-                # sns.displot(-1 * ood_sum_energy, label="ood", color= "r",kde=False, ax = ax1)
                 sns.displot({"ID":-1 * id_sum_energy, "OOD": -1 * ood_sum_energy}, label="id", kind = "kde", fill = True, alpha = 0.5)
-                # ax1.hist(-1 * id_sum_energy, 30, density = True, alpha=0.5, label='id')
-                # ax1.hist(-1 * ood_sum_energy, 30, density = True, alpha=0.5, label='ood')
-                # ax1.set_ylim(0, 2)
-                # ax1.legend(loc='upper right')
-                # ax1.set_title("Energy Sum")
                 plt.title("Energy")
                 plt.ylim(0, 0.3)
                 plt.xlim(-10, 20)
@@ -84,7 +61,6 @@ def main():
         fprs[test_epoch] = 100 * all_results["FPR95"]/len(out_datasets)
         avg_results = compute_average_results(all_results_ntom)
         print_results(avg_results, args.in_dataset, "All", args.name, "energy sum")
-    # print(fprs)
 
 def print_results(results, in_dataset, out_dataset, name, method):
     mtypes = ['FPR', 'DTERR', 'AUROC', 'AUIN', 'AUOUT']
