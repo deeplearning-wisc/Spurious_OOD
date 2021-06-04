@@ -210,25 +210,3 @@ def get_biased_mnist_dataloader(args, root, batch_size, data_label_correlation, 
     dataloader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, **kwargs)
     
     return dataloader
-
-def generate_custom_ood_dataset(name, save_labels, data_label_correlation = 0.5, n_confusing_labels = 9, train=False, partial=False):
-    loader = get_biased_mnist_dataloader(args = None, root = './datasets/MNIST', batch_size=1,
-                                            data_label_correlation= data_label_correlation,
-                                            n_confusing_labels= n_confusing_labels,
-                                            train=train, partial=partial, cmap = "2")
-    idx_to_class = {v: k for k, v in loader.dataset.class_to_idx.items()}
-    result_path = f"datasets/ood_datasets/{name}"
-    for i, (images, labels, _) in enumerate(loader):
-        if labels not in save_labels:
-            continue
-        unorm = UnNormalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-        unorm(images[0])
-        image_PIL = transforms.ToPILImage()(images[0])
-
-        class_path = os.path.join(result_path, idx_to_class[labels.item()])
-        if not os.path.exists(class_path):
-            os.makedirs(class_path)
-        image_PIL.save(os.path.join(class_path, f'img{i+1}.png'))
-
-if __name__ == "__main__":
-    generate_custom_ood_dataset("mnist_5_9", save_labels=[5,6,7,8,9], data_label_correlation=0.5, n_confusing_labels=4, train=False, partial=True)
