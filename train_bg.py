@@ -187,7 +187,7 @@ def main():
         print(f"Start training epoch {epoch}")
 
         if args.method == "rebias":
-            rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch)
+            rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch, log)
             model = f_model
         elif args.method == "dann" or args.method == "cdann":
             dann_train(model, train_loaders, optimizer, epoch, args.epochs, log, cdann=(args.method=="cdann"))    
@@ -371,7 +371,7 @@ def gdro_train(model, train_loaders, criterion, optimizer, epoch, log):
                     100. * batch_idx / len(train_loaders[0]), loss.item()))
         batch_idx += 1
 
-def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch, n_g_update=1):
+def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch, log, n_g_update=1):
     '''
     Adapted from https://github.com/clovaai/rebias/blob/master/main_biased_mnist.py
     '''
@@ -380,7 +380,17 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
     inner_criterion = MinusRbfHSIC(**inner_criterion_config)
     outer_criterion = RbfHSIC(**outer_criterion_config)
     classification_criterion = nn.CrossEntropyLoss()
-    
+
+    len_loader = 0
+    for x in train_loaders:
+        len_loader += len(x)
+    train_loaders = [iter(x) for x in train_loaders]
+
+    batch_time = AverageMeter()
+    nat_losses = AverageMeter()
+    nat_top1 = AverageMeter()
+    batch_idx = 0
+
     def update_g(model, data, target, g_lambda_inner=1):
         model.train()
         
@@ -401,8 +411,10 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
         g_loss.backward()
         g_optimizer.step()
 
-    def update_f(model, data, target, f_lambda_outer=1):
+    def update_f(model, data, target, log, f_lambda_outer=1):
+        end = time.time()
         model.train()
+        f_optimizer.zero_grad()
 
         f_loss = 0
         f_feats, preds = model.f_net(data)
@@ -416,9 +428,26 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
             f_loss_indep += _f_loss_indep
         f_loss += f_lambda_outer * f_loss_indep
 
-        f_optimizer.zero_grad()
+        # measure accuracy and record loss
+        nat_prec1 = accuracy(preds.data, target, topk=(1,))[0]
+        nat_losses.update(f_loss.data, data.size(0))
+        nat_top1.update(nat_prec1, data.size(0))        
+        
         f_loss.backward()
         f_optimizer.step()
+
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
+
+        if batch_idx % 10 == 0:
+            log.debug('Epoch: [{0}][{1}/{2}]\t'
+                'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                    epoch, batch_idx, len_loader, batch_time=batch_time,
+                    loss=nat_losses, top1=nat_top1))
+        batch_idx += 1
 
     model = ReBiasModels(f_model, g_model)
     train_loaders = [iter(x) for x in train_loaders]
@@ -432,7 +461,7 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
             data, target = data.cuda(), target.cuda()
             for _ in range(n_g_update):
                 update_g(model, data, target)
-            update_f(model, data, target)
+            update_f(model, data, target, log)
 
 def dann_train(model, train_loaders, optimizer, epoch, n_epoch, log, cdann=False):
     '''
