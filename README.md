@@ -8,10 +8,7 @@ Modern neural networks can assign high confidence to inputs drawn from outside t
 ![main](main.png)
 
 ## Required Packages
-The following packages are required to be installed:
-
-* Python 3.8
-* PyTorch 1.6
+Our experiments are conducted on Ubuntu Linux 20.04 with Python 3.8 and Pytorch 1.6. Besides, the following packages are required to be installed:
 * Scipy
 * Numpy
 * Sklearn
@@ -19,7 +16,7 @@ The following packages are required to be installed:
 * Matplotlib
 * Seaborn
 
-Our experiments are conducted on Ubuntu Linux 20.04. Support for distributed training will be provided soon.
+Support for distributed training will be provided soon.
 
 ## In-distribution Datasets
 
@@ -38,10 +35,10 @@ We provide links and instructions to download each dataset:
 * [LSUN-R](https://www.dropbox.com/s/moqh2wh8696c3yl/LSUN_resize.tar.gz): download it and place it in the folder of `datasets/ood_datasets/LSUN_resize`.
 * [iSUN](https://www.dropbox.com/s/ssz7qxfqae0cca5/iSUN.tar.gz): download it and place it in the folder of `datasets/ood_datasets/iSUN`.
 
-For example, run the following commands in the **root** directory to download **LSUN-C**:
+For example, run the following commands in the **root** directory to download **LSUN-R**:
 ```
 cd datasets/ood_datasets
-wget https://www.dropbox.com/s/fhtsw1m3qxlwj6h/LSUN.tar.gz
+wget https://www.dropbox.com/s/moqh2wh8696c3yl/LSUN_resize.tar.gz
 tar -xvzf LSUN.tar.gz
 ```
 
