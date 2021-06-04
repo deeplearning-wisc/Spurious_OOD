@@ -1,8 +1,8 @@
 """ReBias
 Copyright (c) 2020-present NAVER Corp.
 MIT license
-
 Python implementation of Biased-MNIST.
+Adapted from https://github.com/clovaai/rebias
 """
 import os
 import numpy as np
@@ -13,15 +13,8 @@ from torch.utils import data
 
 from torchvision import transforms
 from torchvision.datasets import MNIST
-from torch.utils.data.dataloader import default_collate
 from torch.utils.data.distributed import DistributedSampler
-
-
-# class PartialMNIST(MNIST):
-#         def __init__(self, root, train = True, transform = None, target_transform=None, download = False, partial=False):
-#             super().__init__(root, train=train, transform=transform,
-#                             target_transform=target_transform,
-#                             download=download)
+from utils import UnNormalize
 
 class BiasedMNIST(MNIST):
     """A base class for Biased-MNIST.
@@ -57,16 +50,6 @@ class BiasedMNIST(MNIST):
         We suggest to researchers considering this benchmark for future researches.
     """
 
-    # ORIGINAL_MAP = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [225, 225, 0], [225, 0, 225],
-    #               [0, 255, 255], [255, 128, 0], [255, 0, 128], [128, 0, 255], [128, 128, 128]]
-    # SET1: ONLY DIFF IN 0
-    # COLOUR_MAP1 = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [225, 225, 0], [225, 0, 225],
-    #               [255, 0, 0], [255, 0, 0],[255, 0, 0], [255, 0, 0], [255, 0, 0]]
-    # COLOUR_MAP2 = [[128, 0, 255], [0, 255, 0], [0, 0, 255], [225, 225, 0], [225, 0, 225],
-    #               [255, 0, 0], [255, 0, 0],[255, 0, 0], [255, 0, 0], [255, 0, 0]]
-    # COLOUR_MAP2 = [[0, 0, 0], [255, 0, 0], [0, 0, 255], [225, 225, 0], [225, 0, 225],
-    #               [255, 0, 0], [255, 0, 0],[255, 0, 0], [255, 0, 0], [255, 0, 0]]
-    # SET2: ONLY DIFF IN 0 & 1
     COLOUR_MAP1 = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [225, 225, 0], [225, 0, 225],
                   [255, 0, 0], [255, 0, 0],[255, 0, 0], [255, 0, 0], [255, 0, 0]]
     COLOUR_MAP2 = [[128, 0, 255], [255, 0, 128], [0, 0, 255], [225, 225, 0], [225, 0, 225],
@@ -271,56 +254,5 @@ def generate_custom_ood_dataset(name, save_labels, data_label_correlation = 1, n
             os.makedirs(class_path)
         image_PIL.save(os.path.join(class_path, f'img{i+1}.png'))
 
-
-class UnNormalize(object):
-    def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
-
-    def __call__(self, tensor):
-        """
-        Args:
-            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
-        Returns:
-            Tensor: Normalized image.
-        """
-        for t, m, s in zip(tensor, self.mean, self.std):
-            t.mul_(s).add_(m)
-            # The normalize code -> t.sub_(m).div_(s)
-        return tensor
-
-# example usage:
-
-# tr_loader = get_biased_mnist_dataloader(root, batch_size=batch_size,
-#                                             data_label_correlation=train_correlation,
-#                                             n_confusing_labels=n_confusing_labels,
-#                                             train=True)
-# logger.log('preparing val loader...')
-# val_loaders = {}
-# val_loaders['biased'] = get_biased_mnist_dataloader(root, batch_size=batch_size,
-#                                                     data_label_correlation=1,
-#                                                     n_confusing_labels=n_confusing_labels,
-#                                                     train=False)
-# val_loaders['rho0'] = get_biased_mnist_dataloader(root, batch_size=batch_size,
-#                                                   data_label_correlation=0,
-#                                                   n_confusing_labels=9,
-#                                                   train=False)
-# val_loaders['unbiased'] = get_biased_mnist_dataloader(root, batch_size=batch_size,
-#                                                       data_label_correlation=0.1,
-#                                                       n_confusing_labels=9,
-#                                                       train=False)
-# logger.log('preparing trainer...')
-
 if __name__ == "__main__":
-    # batch_size = 20
-    # train_correlation = 1
-    # n_confusing_labels = 9
-    # root = './datasets/MNIST'
-    # tr_loader = get_biased_mnist_dataloader(root, batch_size=batch_size,
-    #                                         data_label_correlation=train_correlation,
-    #                                         n_confusing_labels=n_confusing_labels,
-    #                                         train=True, partial=True)
-    # generate_custom_ood_dataset("exam_train_set", save_labels = [0,1,2,3,4,5,6,7,8,9], data_label_correlation= 0.1,
-    #                                         n_confusing_labels= 4, train=True, partial=True)
-    # generate_custom_ood_dataset("cross-bias", save_labels=[0,1], data_label_correlation=1, n_confusing_labels= 4, train=True, partial=True)
     generate_custom_ood_dataset("mnist_5_9", save_labels=[5,6,7,8,9], data_label_correlation=1, n_confusing_labels=4, train=False, partial=True)
