@@ -68,7 +68,8 @@ Notes for some of the arguments:
 * `datasets/cub_dataset.py`: provides the dataloader for WaterBirds datasets of multiple correlations.
 * `datasets/generate_waterbird.py`: generate the combination of bird and background images with a preset correlation. You can simply run `python generate_waterbird.py` to generate the dataset and the dataset will be stored as `datasets/waterbird_completexx_forest2water2`, where `xx` is the string of the two digits after the decimal point, for example when r=0.9, `xx`=90.
 * `datasets/generate_placebg.py`: subsample background images of specific kinds as the OOD data. You can simply run `python generate_placebg.py` to generate the OOD dataset, and it will be stored as `datasets/ood_datasets/placesbg/`.
-(Before the generation of WaterBirds dataset, you need to download and change the path of CUB dataset and Places dataset first as specified in `generate_waterbird.py`.)
+
+(Notes: Before the generation of WaterBirds dataset, you need to download and change the path of CUB dataset and Places dataset first as specified in `generate_waterbird.py`.)
 
 A sample script to run model training and ood evaluation task on WaterBirds is as follows:
 ```bash
