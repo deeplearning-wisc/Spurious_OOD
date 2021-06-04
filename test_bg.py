@@ -156,7 +156,7 @@ def get_ood_energy(args, model, val_loader, epoch, log, method):
                 _, outputs = model(images)
             e_s = -torch.logsumexp(outputs, dim=1)
             e_s = e_s.data.cpu().numpy() 
-            in_energy.update(e_s.mean(), len(labels))  #DEBUG
+            in_energy.update(e_s.mean(), len(labels))
             if init:
                 sum_energy = e_s
                 init = False
@@ -189,7 +189,7 @@ def get_id_energy(args, model, val_loader, epoch, log, method):
             top1.update(prec1, images.size(0))
             e_s = -torch.logsumexp(outputs, dim=1)
             e_s = e_s.data.cpu().numpy() 
-            in_energy.update(e_s.mean(), len(labels))  #DEBUG
+            in_energy.update(e_s.mean(), len(labels)) 
             if init:
                 sum_energy = e_s
                 init = False
