@@ -28,7 +28,7 @@ class celebADataset(Dataset):
         }
         self.split = split
         self.dataset_name = 'celebA'
-        self.dataset_dir = os.path.join("/nobackup/spurious_ood", self.dataset_name)
+        self.dataset_dir = os.path.join("datasets/", self.dataset_name)
         if not os.path.exists(self.dataset_dir):
             raise ValueError(
                 f'{self.dataset_dir} does not exist yet. Please generate the dataset first.')
@@ -60,7 +60,7 @@ class celebADataset(Dataset):
 class celebAOodDataset(Dataset):
     def __init__(self):
         self.dataset_name = 'celebA'
-        self.dataset_dir = os.path.join("/nobackup/spurious_ood", self.dataset_name)
+        self.dataset_dir = os.path.join("datasets/", self.dataset_name)
         if not os.path.exists(self.dataset_dir):
             raise ValueError(
                 f'{self.dataset_dir} does not exist yet. Please generate the dataset first.')
@@ -139,7 +139,6 @@ if __name__ == "__main__":
                     help='mini-batch size (default: 64) used for training')
     parser.add_argument('--ood-batch-size', default= 64, type=int,
                     help='mini-batch size (default: 400) used for testing')
-    parser.add_argument('--multi-gpu', default=False, type=bool)
     args = parser.parse_args()
 
     dataloader = get_celebA_dataloader(args, split='train')

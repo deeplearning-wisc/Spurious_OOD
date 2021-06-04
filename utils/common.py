@@ -54,10 +54,7 @@ def accuracy(output, target, topk=(1,)):
 
 def save_checkpoint(args, state, epoch, name = None):
     """Saves checkpoint to disk"""
-    directory = "/nobackup/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
-    # directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
-    # directory = "/nobackup-slow/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, 
-            # name=args.name, exp=args.exp_name)
+    directory = "checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
     os.makedirs(directory, exist_ok=True)
     if name == None:
         filename = directory + 'checkpoint_{}.pth.tar'.format(epoch)
