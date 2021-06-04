@@ -52,7 +52,7 @@ parser.add_argument('--num-classes', default=2, type=int,
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
 parser.add_argument('--weight-decay', '--wd', default=0.0001, type=float,
                     help='weight decay (default: 0.0001)')
-parser.add_argument('--data_label_correlation', default=1, type=float,
+parser.add_argument('--data_label_correlation', default=0.5, type=float,
                     help='data_label_correlation')
 # saving, naming and logging
 parser.add_argument('--exp-name', required= True, type=str, 

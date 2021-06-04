@@ -33,7 +33,7 @@ parser.add_argument('--num-classes', default=2, type=int,
                     help='number of classes for model training')
 parser.add_argument('--ood-batch-size', default= 64, type=int,
                     help='mini-batch size (default: 400) used for testing')
-parser.add_argument('--data_label_correlation', default= 0.4, type=float,
+parser.add_argument('--data_label_correlation', default= 0.5, type=float,
                     help='data_label_correlation')
 parser.add_argument('--test_epochs', "-e", default = "10", type=str,
                      help='# epoch to test performance')

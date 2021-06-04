@@ -205,13 +205,13 @@ def get_biased_mnist_dataloader(args, root, batch_size, data_label_correlation, 
         transforms.Normalize(mean=(0.5, 0.5, 0.5),
                              std=(0.5, 0.5, 0.5))])
     dataset = ColourBiasedMNIST(root, train=train, transform=transform,
-                                download=True, data_label_correlation=data_label_correlation,
+                                download=True, data_label_correlation=data_label_correlation*2,
                                 n_confusing_labels=n_confusing_labels, partial=partial, cmap = cmap)
     dataloader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, **kwargs)
     
     return dataloader
 
-def generate_custom_ood_dataset(name, save_labels, data_label_correlation = 1, n_confusing_labels = 9, train=False, partial=False):
+def generate_custom_ood_dataset(name, save_labels, data_label_correlation = 0.5, n_confusing_labels = 9, train=False, partial=False):
     loader = get_biased_mnist_dataloader(args = None, root = './datasets/MNIST', batch_size=1,
                                             data_label_correlation= data_label_correlation,
                                             n_confusing_labels= n_confusing_labels,
@@ -231,4 +231,4 @@ def generate_custom_ood_dataset(name, save_labels, data_label_correlation = 1, n
         image_PIL.save(os.path.join(class_path, f'img{i+1}.png'))
 
 if __name__ == "__main__":
-    generate_custom_ood_dataset("mnist_5_9", save_labels=[5,6,7,8,9], data_label_correlation=1, n_confusing_labels=4, train=False, partial=True)
+    generate_custom_ood_dataset("mnist_5_9", save_labels=[5,6,7,8,9], data_label_correlation=0.5, n_confusing_labels=4, train=False, partial=True)
