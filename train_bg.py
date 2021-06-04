@@ -67,6 +67,8 @@ parser.add_argument('--log_name', type = str, default = "info.log",
 # Device options
 parser.add_argument('--gpu-ids', default='4', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
+parser.add_argument('--local_rank', default=-1, type=int,
+                        help='rank for the current node')
 # Miscs
 parser.add_argument('--manualSeed', type=int, help='manual seed')
 parser.add_argument('--n-g-nets', default=1, type=int,
