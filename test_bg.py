@@ -14,8 +14,7 @@ from torch.utils.data import DataLoader
 from models import Resnet
 from datasets.color_mnist import get_biased_mnist_dataloader
 from datasets.cub_dataset import WaterbirdDataset
-from datasets.celebA_dataset import get_celebA_dataloader
-import utils.svhn_loader as svhn
+from datasets.celebA_dataset import get_celebA_dataloader, get_celebA_ood_dataloader
 from utils import AverageMeter
 
 parser = argparse.ArgumentParser(description='OOD Detection Evaluation based on Energy-score')
@@ -45,6 +44,8 @@ parser.add_argument('--gpu-ids', default='5', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
 parser.add_argument('--manualSeed', type=int, help='manual seed')
 parser.add_argument('--multi-gpu', default=False, type=bool)
+parser.add_argument('--local_rank', default=-1, type=int,
+                        help='rank for the current node')
 
 args = parser.parse_args()
 
@@ -117,6 +118,8 @@ def main():
         out_datasets = ['placesbg']
     elif args.in_dataset == 'color_mnist_multi':
         out_datasets = ['partial_color_mnist_0&1']
+    elif args.in_dataset == 'celebA':
+        out_datasets = ['celebA_ood']
 
     for test_epoch in test_epochs:
         cpts_directory = "/nobackup/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
@@ -249,6 +252,8 @@ def get_ood_loader(out_dataset, CAM = False):
             subset = torch.utils.data.Subset(testsetout, np.random.choice(len(testsetout), 5000, replace=False))
             testloaderOut = torch.utils.data.DataLoader(subset, batch_size=args.ood_batch_size,
                                              shuffle=True, num_workers=2)           
+        elif 'celebA_ood' in out_dataset:
+            testloaderOut = get_celebA_ood_dataloader(args)
         else: # for iSUN and LSUN_Resize dataset, which are used for ColorMNIST
             testsetout = torchvision.datasets.ImageFolder("datasets/ood_datasets/{}".format(out_dataset),
                                         transform= mnist_transform)
