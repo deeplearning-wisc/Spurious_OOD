@@ -482,8 +482,8 @@ def dann_train(model, train_loaders, optimizer, epoch, n_epoch, log, cdann=False
 
             # measure accuracy and record loss
             nat_prec1 = accuracy(class_output.data, target, topk=(1,))[0]
-            nat_losses.update(err.data, input.size(0))
-            nat_top1.update(nat_prec1, input.size(0))
+            nat_losses.update(err.data, data.size(0))
+            nat_top1.update(nat_prec1, data.size(0))
 
             err.backward()
             optimizer.step()  
