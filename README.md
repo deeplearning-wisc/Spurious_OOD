@@ -43,7 +43,7 @@ tar -xvzf LSUN.tar.gz
 
 #### Spurious OOD Test Sets
 * Color MNIST: download it and place it in the folder of `datasets/ood_datasets/partial_color_mnist_0&1`.
-* WaterBirds: download it and place it in the folder of `datasets/ood_datasets/placesbg`.
+* WaterBirds: refer to [Waterbirds](#WaterBirds) and the dataset should be placed in the folder of `datasets/ood_datasets/placesbg`.
 * CelebA: the meta data for this dataset has already been included in the provided CelebA zip file as `datasets/CelebA/celebA_ood.csv`.
 
 
