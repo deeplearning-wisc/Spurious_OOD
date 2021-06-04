@@ -66,8 +66,8 @@ Notes for some of the arguments:
 * `--gpu-ids`: the index of the gpu to be used. Currently we support running with a single gpu. Support for Distributed training will be provided soon.
 ### WaterBirds
 * `datasets/cub_dataset.py`: provides the dataloader for WaterBirds datasets of multiple correlations.
-* `datasets/generate_waterbird.py`: generate the combination of bird and background images with a preset correlation. You can simply run `python generate_waterbird.py` to generate the dataset and the dataset will be stored as `datasets/waterbird_completexx_forest2water2`, where `xx` is the string of the two digits after the decimal point, for example when r=0.9, `xx`=90.
-* `datasets/generate_placebg.py`: subsample background images of specific kinds as the OOD data. You can simply run `python generate_placebg.py` to generate the OOD dataset, and it will be stored as `datasets/ood_datasets/placesbg/`.
+* `datasets/generate_waterbird.py`: generates the combination of bird and background images with a preset correlation. You can simply run `python generate_waterbird.py` to generate the dataset and the dataset will be stored as `datasets/waterbird_completexx_forest2water2`, where `xx` is the string of the two digits after the decimal point, for example when r=0.9, `xx`=90.
+* `datasets/generate_placebg.py`: subsamples background images of specific types as the OOD data. You can simply run `python generate_placebg.py` to generate the OOD dataset, and it will be stored as `datasets/ood_datasets/placesbg/`.
 
 (Notes: Before the generation of WaterBirds dataset, you need to download and change the path of CUB dataset and Places dataset first as specified in `generate_waterbird.py`.)
 
