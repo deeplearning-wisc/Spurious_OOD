@@ -206,7 +206,7 @@ def main():
             save_checkpoint(args, {
                     'epoch': epoch + 1,
                     'state_dict_model': model.state_dict(),
-            }, epoch + 1, name="best") 
+            }, epoch + 1) 
 
 def train(model, train_loaders, criterion, optimizer, epoch, log):
     """Train for one epoch on the training set"""
