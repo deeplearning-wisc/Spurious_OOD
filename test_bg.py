@@ -20,16 +20,9 @@ import torchvision
 from matplotlib import pyplot as plt
 from sklearn import metrics
 
-from models.fine_tuning_layer import clssimp as clssimp
-import models.densenet as dn
-import models.wideresnet as wn
-import models.resnet as rn
-import models.simplenet as sn
-from models import CNNModel, res18, res50
-
+from models import Resnet
 from tensorboard_logger import configure, log_value
 from torch.distributions.multivariate_normal import MultivariateNormal
-from rebias_utils import SimpleConvNet
 
 
 from torch.utils.data import Sampler, DataLoader
@@ -47,6 +40,8 @@ parser.add_argument('--in-dataset', default="color_mnist", type=str, help='in-di
 parser.add_argument('--model-arch', default='resnet18', type=str, help='model architecture e.g. resnet101')
 parser.add_argument('--method', default='dann', type=str, help='method used for model training')
 parser.add_argument('--print-freq', '-p', default=10, type=int, help='print frequency (default: 10)') # print every print-freq batches during training
+parser.add_argument('--domain-num', default=2, type=int,
+                    help='the number of environments for model training')
 # ID train & val batch size and OOD train batch size 
 parser.add_argument('-b', '--batch-size', default= 64, type=int,
                     help='mini-batch size (default: 64) used for training id and ood')
@@ -148,41 +143,21 @@ def main():
                                             train=False, partial=True, cmap = "1")
         num_classes = args.num_classes
     elif args.in_dataset == "waterbird":
-        val_dataset = WaterbirdDataset(data_correlation=args.data_label_correlation, train=False)
+        val_dataset = WaterbirdDataset(data_correlation=args.data_label_correlation, split='test')
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
         num_classes = args.num_classes
     elif args.in_dataset == "celebA":
-        val_loader = get_celebA_dataloader(args, train=False)
+        val_loader = get_celebA_dataloader(args, split='test')
         num_classes = args.num_classes
 
     # create model
-    if args.model_arch == "general_model":
-        base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
-    elif args.model_arch == "resnet50":
-        if args.in_dataset == "waterbird":
-            base_model = res50(n_classes=args.num_classes, method=args.method, domain_num=4)
-        else:
-            base_model = res50(n_classes=args.num_classes, method=args.method)
-    elif args.model_arch == "resnet18":
-        base_model = res18(n_classes=args.num_classes, method=args.method)
-    else:
-        assert False, 'Not supported model arch: {}'.format(args.model_arch)
-
-    model = base_model.cuda()
-    # if args.method == "dann" or args.method == "erm" or args.method == "irm":
-    #     model = base_model.cuda()
-    # elif args.method == "rebias":
-    #     n_g_nets = 1
-    #     f_model = base_model.cuda()
-    #     g_model = [base_model.cuda() for _ in range(n_g_nets)]
-    # else:
-    #     assert False, 'Not supported method: {}'.format(args.method)
+    model = Resnet(n_classes=args.num_classes, model=args.model_arch, method=args.method, domain_num=args.domain_num)
+    model = model.cuda()
 
     test_epochs = args.test_epochs.split()
     if args.in_dataset == 'color_mnist':
         out_datasets = ['partial_color_mnist_0&1']
         #out_datasets = ['dtd', 'iSUN', 'LSUN_resize']
-         # out_datasets = ['partial_color_mnist']
     elif args.in_dataset == 'waterbird':
         out_datasets = ['placesbg']
     elif args.in_dataset == 'color_mnist_multi':

@@ -178,7 +178,6 @@ def main():
     else:
         freeze_bn(model, freeze_bn_affine)
     
-    #CORE
     if args.in_dataset == "color_mnist":
         train_loaders = [train_loader1, train_loader2]
     elif args.in_dataset == "waterbird" or args.in_dataset == "celebA":
@@ -378,6 +377,9 @@ def gdro_train(model, train_loaders, criterion, optimizer, epoch, log):
         batch_idx += 1
 
 def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch, n_g_update=1):
+    '''
+    Adapted from https://github.com/clovaai/rebias/blob/master/main_biased_mnist.py
+    '''
     outer_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'}
     inner_criterion_config={'sigma_x': 1, 'sigma_y': 1, 'algorithm': 'unbiased'}
     inner_criterion = MinusRbfHSIC(**inner_criterion_config)
@@ -437,6 +439,9 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
             update_f(model, data, target)
 
 def dann_train(model, train_loaders, optimizer, epoch, n_epoch, cdann=False):
+    '''
+    Adapted from DomainBed https://github.com/facebookresearch/DomainBed/blob/master/domainbed/algorithms.py
+    '''
     loss_class = nn.CrossEntropyLoss().cuda()
     loss_domain = nn.CrossEntropyLoss().cuda()
     len_loader = 0
