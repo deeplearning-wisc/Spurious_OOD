@@ -52,20 +52,6 @@ parser.add_argument('-b', '--batch-size', default= 64, type=int,
                     help='mini-batch size (default: 64) used for training id and ood')
 parser.add_argument('--num-classes', default=2, type=int,
                     help='number of classes for model training')
-# # densenet
-# parser.add_argument('--layers', default= 100, type=int,
-#                     help='total number of layers (default: 100) for DenseNet')
-# parser.add_argument('--growth', default= 12, type=int,
-#                     help='number of new channels per layer (default: 12)')
-# # network spec
-# parser.add_argument('--droprate', default=0.0, type=float,
-#                     help='dropout probability (default: 0.0)')
-# parser.add_argument('--no-augment', dest='augment', action='store_false',
-#                     help='whether to use standard augmentation (default: True)')
-# parser.add_argument('--reduce', default=0.5, type=float,
-#                     help='compression rate in transition stage (default: 0.5)')
-# parser.add_argument('--no-bottleneck', dest='bottleneck', action='store_false',
-#                     help='To not use bottleneck block')
 # ood
 parser.add_argument('--ood-batch-size', default= 64, type=int,
                     help='mini-batch size (default: 400) used for testing')
@@ -93,15 +79,13 @@ parser.set_defaults(augment=True)
 args = parser.parse_args()
 
 state = {k: v for k, v in args._get_kwargs()}
-
-print(state)
 directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
-# if not os.path.exists(directory):
-#     os.makedirs(directory)
-# save_state_file = os.path.join(directory, 'args.txt')
-# fw = open(save_state_file, 'w')
-# print(state, file=fw)
-# fw.close()
+if not os.path.exists(directory):
+    os.makedirs(directory)
+save_state_file = os.path.join(directory, 'args.txt')
+fw = open(save_state_file, 'w')
+print(state, file=fw)
+fw.close()
 
 # Use CUDA
 # os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu_ids
@@ -152,54 +136,16 @@ def main():
         ])
 
     kwargs = {'num_workers': 4, 'pin_memory': True}
-    normalizer = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-    # normalizer = transforms.Normalize((125.3/255, 123.0/255, 113.9/255), (63.0/255, 62.1/255.0, 66.7/255.0)) #obsolete
     val_transform = transforms.Compose([transforms.Scale(256),
                                         transforms.CenterCrop(224),
                                         transforms.ToTensor(),
                                         normalizer])
-    if args.in_dataset == "CIFAR-10":
-        val_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR10('./datasets/cifar10', train=False, transform=transform_test),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
-        num_classes = 10
-    elif args.in_dataset == "CIFAR-100":
-        val_loader = torch.utils.data.DataLoader(
-            datasets.CIFAR100('./datasets/cifar100', train=False, transform=transform_test),
-            batch_size=args.batch_size, shuffle=True, **kwargs)
-        num_classes = 100
-    elif args.in_dataset == "IN-9":
-        # test_set = torchvision.datasets.ImageFolder("/nobackup-slow/dataset/background/mixed_rand/val",
-        #                                 transform= val_transform)
-        # val_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size,
-        #                                      shuffle=True, num_workers=4)
-        test_set = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/background/original/val", 
-                  transform=val_transform)
-        val_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size,
-                                         shuffle=True, num_workers=4)
-        val_loader_cam = torch.utils.data.DataLoader(test_set, batch_size=1,
-                                         shuffle=True, num_workers=2)
-        num_classes = 9
-    elif args.in_dataset == "random":
-        test_set = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/shape/val", transform=val_transform)  
-        # test_set = torchvision.datasets.ImageFolder(root="datasets/random_shape/val_4", transform=val_transform)
-        val_loader = torch.utils.data.DataLoader(test_set, batch_size=args.batch_size,
-                                         shuffle=True, num_workers=4)
-        val_loader_cam = torch.utils.data.DataLoader(test_set, batch_size=1,
-                                         shuffle=True, num_workers=2)
-        num_classes = 9
 
-    elif args.in_dataset == "color_mnist" or args.in_dataset == "color_mnist_multi":
-        # val_loader  = get_ood_loader("0_background")
+    if args.in_dataset == "color_mnist":
         val_loader = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=args.batch_size,
                                             data_label_correlation= args.data_label_correlation,
                                             n_confusing_labels= args.num_classes - 1,
                                             train=False, partial=True, cmap = "1")
-        val_loader_cam = get_biased_mnist_dataloader(args, root = './datasets/MNIST', batch_size=1,
-                                            data_label_correlation= args.data_label_correlation,
-                                            n_confusing_labels= 9,
-                                            train=False, partial=False, cmap = "1")
         num_classes = args.num_classes
     elif args.in_dataset == "waterbird":
         val_dataset = WaterbirdDataset(data_correlation=args.data_label_correlation, train=False)
@@ -210,21 +156,7 @@ def main():
         num_classes = args.num_classes
 
     # create model
-    # if args.model_arch == 'densenet':
-    #     model = dn.DenseNet3(args.layers, num_classes, normalizer=normalizer)
-    # elif args.model_arch == 'wideresnet':
-    #     model = wn.WideResNet(args.depth, num_classes, widen_factor=args.width, dropRate=args.droprate, normalizer=normalizer)
-    if args.model_arch == "resnet101":
-        orig_resnet = rn.l_resnet101()
-        features = list(orig_resnet.children())
-        model = nn.Sequential(*features[0:8])
-        clsfier = clssimp(2048, num_classes)
-    # elif args.model_arch == "resnet18":
-    #     orig_resnet = torchvision.models.resnet18(pretrained=False)
-    #     features = list(orig_resnet.children())
-    #     model = nn.Sequential(*features[0:8])
-    #     clsfier = clssimp(512, num_classes)
-    elif args.model_arch == "general_model":
+    if args.model_arch == "general_model":
         base_model = CNNModel(num_classes=args.num_classes, bn_init=True, method=args.method)
     elif args.model_arch == "resnet50":
         if args.in_dataset == "waterbird":
@@ -247,14 +179,7 @@ def main():
     #     assert False, 'Not supported method: {}'.format(args.method)
 
     test_epochs = args.test_epochs.split()
-    if args.in_dataset == 'IN-9':
-        # out_datasets = ['places365','LSUN', 'LSUN_resize', 'iSUN', 'dtd', 'SVHN',"ocean", 'fox']
-        # out_datasets = ["ocean", 'fox']
-        # out_datasets = ['no_fg','only_bg_b', 'places365', 'SVHN', 'ocean']
-        out_datasets = ['no_fg','only_bg_b', 'ocean']
-    elif args.in_dataset == 'random':
-        out_datasets = ['red_rectangle', 'green_rectangle']
-    elif args.in_dataset == 'color_mnist':
+    if args.in_dataset == 'color_mnist':
         out_datasets = ['partial_color_mnist_0&1']
         #out_datasets = ['dtd', 'iSUN', 'LSUN_resize']
          # out_datasets = ['partial_color_mnist']
@@ -263,7 +188,6 @@ def main():
     elif args.in_dataset == 'color_mnist_multi':
         out_datasets = ['partial_color_mnist_0&1']
     # load model and store test results
-
 
     for test_epoch in test_epochs:
         # print("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=args.in_dataset, name=args.name, epochs= test_epoch))
@@ -297,21 +221,6 @@ def main():
             with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}.npy'), 'wb') as f:
                 np.save(f, ood_sum_energy)
                 # np.save(f, ood_cmt)
-
-    if args.CAM:
-        checkpoint = torch.load("./checkpoints/{in_dataset}/{name}/checkpoint_{epochs}.pth.tar".format(in_dataset=args.in_dataset, name=args.name, epochs= test_epochs[0]))
-        # model.load_state_dict(checkpoint['state_dict'])
-        model.load_state_dict(checkpoint['state_dict_model'])
-        clsfier.load_state_dict(checkpoint['state_dict_clsfier'])
-        model.eval()
-        model.cuda()
-        clsfier.eval()
-        clsfier.cuda()
-        # get_cam(args, model, clsfier, val_loader_cam, args.in_dataset, num_result = 20)
-        get_cam_per_class(args, model, clsfier, val_loader_cam, args.in_dataset, num_result = 120, size_upsample = (32, 32))
-        # out_dataset = out_datasets[0]
-        # testloaderOut, testloaderOut_cam = get_ood_loader(out_dataset, CAM  = True)
-        # get_cam_per_class(args, model, clsfier,  testloaderOut_cam, out_dataset, num_result = 120, size_upsample = (32, 32))
 
 def get_energy(args, model, val_loader, epoch, log, method, id = False, CAM = False):
     in_energy = AverageMeter()
@@ -405,123 +314,6 @@ def get_energy_biased(args, model, val_loader, epoch, log, method, id = False, C
         else:
             return sum_energy
 
-
-def get_cam(args, model, clsfier, val_loader, dataset, num_result = 10, size_upsample = (224, 224)):
-    
-    def returnCAM(feature_conv, weight_softmax, class_idx, size_upsample):
-        size_upsample = size_upsample
-        _, nc, h, w = feature_conv.shape
-        output_cam = []
-        # cam = weight_softmax[class_idx].dot(feature_conv.reshape((nc, h*w)))
-        cam = weight_softmax[class_idx] * (feature_conv[0][class_idx])
-        cam = cam.reshape(h, w)
-        cam = cam - np.min(cam)
-        cam_img = cam / np.max(cam)
-        cam_img = np.uint8(255 * cam_img)
-        output_cam.append(cv2.resize(cam_img, size_upsample))
-        return output_cam
-
-    finalconv_name = 'conv'
-    result_path = f"./cam_results/{args.name}/{dataset}"
-    if not os.path.exists(result_path):
-        os.makedirs(result_path)
-    # hook
-    feature_blobs = []
-    def hook_feature(module, input, output):
-        feature_blobs.append(output.cpu().data.numpy())
-    clsfier._modules.get(finalconv_name).register_forward_hook(hook_feature)
-    params = list(clsfier.parameters())
-    # get weight only from the last layer(linear)
-    weight_softmax = np.squeeze(params[-1].cpu().data.numpy())
-    print("######## Start generating CAM ########")
-    with torch.no_grad():
-        for i, (images, labels, _) in enumerate(val_loader):
-            # unorm = UnNormalize(mean=(125.3/255, 123.0/255, 113.9/255), std=(63.0/255, 62.1/255.0, 66.7/255.0)) #obsolete
-            unorm = UnNormalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-            unorm = UnNormalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-
-            images = images.cuda()
-            targets = labels.cuda()
-            outputs = model(images)
-            outputs = clsfier(outputs)
-            h_x = F.softmax(outputs, dim=1).data.squeeze()
-            probs, idx = h_x.sort(0, True)
-            print("%d True label : %d, Predicted label : %d, Probability : %.2f" % (i+1, labels.item(), idx[0].item(), probs[0].item()))
-            CAMs = returnCAM(feature_blobs[0], weight_softmax, [idx[0].item()], size_upsample =  size_upsample )
-            unorm(images[0])
-            image_PIL = transforms.ToPILImage()(images[0])
-            image_PIL.save(os.path.join(result_path, 'img%d.png' % (i + 1)))
-            
-            img = cv2.imread(os.path.join(result_path, 'img%d.png' % (i + 1)))
-            height, width, _ = img.shape
-            heatmap = cv2.applyColorMap(cv2.resize(CAMs[0], (width, height)), cv2.COLORMAP_JET)
-            result = heatmap * 0.5 + img * 0.3
-            cv2.imwrite(os.path.join(result_path, 'cam%d.png' % (i + 1)), result)
-            if i + 1 == num_result:
-                break
-            feature_blobs.clear()
-
-def get_cam_per_class(args, model, clsfier, val_loader, dataset, num_result = 10, size_upsample = (224, 224)):
-    idx_to_class = {v: k for k, v in val_loader.dataset.class_to_idx.items()}
-    def returnCAM(feature_conv, weight_softmax, class_idx, size_upsample ):
-        size_upsample = size_upsample 
-        _, nc, h, w = feature_conv.shape
-        output_cam = []
-        # cam = weight_softmax[class_idx].dot(feature_conv.reshape((nc, h*w)))
-        cam = weight_softmax[class_idx] * (feature_conv[0][class_idx])
-        cam = cam.reshape(h, w)
-        cam = cam - np.min(cam)
-        cam_img = cam / np.max(cam)
-        cam_img = np.uint8(255 * cam_img)
-        output_cam.append(cv2.resize(cam_img, size_upsample))
-        return output_cam
-
-    finalconv_name = 'conv'
-    result_path = f"./cam_results/{args.name}/{dataset}"
-    if not os.path.exists(result_path):
-        os.makedirs(result_path)
-    # hook
-    feature_blobs = []
-    def hook_feature(module, input, output):
-        feature_blobs.append(output.cpu().data.numpy())
-    clsfier._modules.get(finalconv_name).register_forward_hook(hook_feature)
-    params = list(clsfier.parameters())
-    # get weight only from the last layer(linear)
-    weight_softmax = np.squeeze(params[-1].cpu().data.numpy())
-    print("######## Start generating CAM ########")
-    with torch.no_grad():
-        for i, (images, labels, _) in enumerate(val_loader):
-            # unorm = UnNormalize(mean=(125.3/255, 123.0/255, 113.9/255), std=(63.0/255, 62.1/255.0, 66.7/255.0))
-            unorm = UnNormalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-            unorm = UnNormalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-
-            images = images.cuda()
-            targets = labels.cuda()
-            outputs = model(images)
-            outputs = clsfier(outputs)
-            h_x = F.softmax(outputs, dim=1).data.squeeze()
-            probs, idx = h_x.sort(0, True)
-            print(f"{i+1} True label : {idx_to_class[labels.item()]} \t Predicted label : {idx_to_class[idx[0].item()]} \t Correct: {labels.item() == idx[0].item()} \t Prob : {probs[0].item():.2f}" )
-            # print("%d True label : %d, Predicted label : %d, Probability : %.2f" % (i+1, labels.item(), idx[0].item(), probs[0].item()))
-            CAMs = returnCAM(feature_blobs[0], weight_softmax, [idx[0].item()], size_upsample = size_upsample)
-            unorm(images[0])
-            image_PIL = transforms.ToPILImage()(images[0])
-
-            class_path = os.path.join(result_path, idx_to_class[labels.item()])
-            if not os.path.exists(class_path):
-                os.makedirs(class_path)
-            image_PIL.save(os.path.join(class_path, f'img{i+1}.png'))
-            # img = cv2.imread(os.path.join(class_path, f'img{i+1}.png'))
-            # image_PIL.save(os.path.join(class_path, f'img{i+1}_P{idx[0].item()}_T{labels.item()}.png'))
-            # img = cv2.imread(os.path.join(class_path, f'img{i+1}_P{idx[0].item()}_T{labels.item()}.png'))
-            # height, width, _ = img.shape
-            # heatmap = cv2.applyColorMap(cv2.resize(CAMs[0], (width, height)), cv2.COLORMAP_JET)
-            # result = heatmap * 0.5 + img * 0.3
-            # cv2.imwrite(os.path.join(class_path, 'cam%d.png' % (i + 1)), result)
-            if i + 1 == num_result:
-                break
-            feature_blobs.clear()
-
 def accuracy(output, target, topk=(1,)):
     """Computes the precision@k for the specified values of k"""
     maxk = max(topk)
@@ -554,18 +346,6 @@ def get_ood_loader(out_dataset, CAM = False):
                                   transform= val_transform, download=False)
             testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size,
                                              shuffle=True, num_workers=2)
-        # elif out_dataset == "CIFAR-100":
-        #     testloaderOut = torch.utils.data.DataLoader(
-        #         datasets.CIFAR100('./datasets/cifar100', train=False, download=False,
-        #                         transform=transforms.Compose([transforms.Resize(32), transforms.CenterCrop(32), transforms.ToTensor()])
-        #                         ),
-        #     batch_size=args.ood_batch_size, shuffle=True, num_workers=2)
-        # elif out_dataset == "CelebA":
-        #     testsetout = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/celeba",
-        #                                 transform=transforms.Compose([transforms.Resize(32), transforms.CenterCrop(32), transforms.ToTensor()]))
-        #     subset = torch.utils.data.Subset(testsetout, np.random.choice(len(testsetout), 10000, replace=False))
-        #     testloaderOut = torch.utils.data.DataLoader(subset, batch_size=args.ood_batch_size, shuffle=True,
-        #                                              num_workers=2)
         elif out_dataset == 'dtd':
             testsetout = torchvision.datasets.ImageFolder(root="datasets/ood_datasets/dtd/images",
                                         transform=val_transform)
@@ -573,25 +353,10 @@ def get_ood_loader(out_dataset, CAM = False):
                                                      num_workers=2)
         elif out_dataset == 'places365':
             testsetout = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/places365",
-            # testsetout = torchvision.datasets.ImageFolder(root="/nobackup-slow/dataset/places365/test_subset",
                 transform=val_transform)
             subset = torch.utils.data.Subset(testsetout, np.random.choice(len(testsetout), 5000, replace=False))
             testloaderOut = torch.utils.data.DataLoader(subset, batch_size=args.ood_batch_size,
                                                      num_workers=2, shuffle=True)
-        elif out_dataset == 'ocean' or out_dataset == 'coral':
-            testsetout = torchvision.datasets.ImageFolder("./datasets/ood_datasets/{}".format(out_dataset),
-                                        transform=val_transform)
-            testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size,
-                                             shuffle=True, num_workers=2)
-            testloaderOut_cam = torch.utils.data.DataLoader(testsetout, batch_size= 1,
-                                             shuffle=True, num_workers=2)
-        elif 'rectangle' in out_dataset:
-            testsetout = torchvision.datasets.ImageFolder("./datasets/random_shape/ood/{}".format(out_dataset),
-                                        transform=val_transform)
-            testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size,
-                                             shuffle=True, num_workers=2)
-            testloaderOut_cam = torch.utils.data.DataLoader(testsetout, batch_size= 1,
-                                             shuffle=True, num_workers=2)
         elif 'partial_color_mnist' in out_dataset or out_dataset == "0_1_cross" or out_dataset == "0_background":
             val_transform = transforms.Compose([
                 transforms.ToTensor(),
@@ -600,8 +365,6 @@ def get_ood_loader(out_dataset, CAM = False):
             testsetout = torchvision.datasets.ImageFolder("./datasets/ood_datasets/{}".format(out_dataset),
                                         transform=val_transform)
             testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size,
-                                             shuffle=True, num_workers=2)
-            testloaderOut_cam = torch.utils.data.DataLoader(testsetout, batch_size= 1,
                                              shuffle=True, num_workers=2)
         elif 'placesbg' in out_dataset:
             scale = 256.0/224.0
@@ -616,29 +379,13 @@ def get_ood_loader(out_dataset, CAM = False):
                                         transform=val_transform)
             subset = torch.utils.data.Subset(testsetout, np.random.choice(len(testsetout), 5000, replace=False))
             testloaderOut = torch.utils.data.DataLoader(subset, batch_size=args.ood_batch_size,
-                                             shuffle=True, num_workers=2)
-            testloaderOut_cam = torch.utils.data.DataLoader(subset, batch_size= 1,
-                                             shuffle=True, num_workers=2)            
-
-            # testloaderOut = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=args.ood_batch_size,
-            #                                 data_label_correlation= 1,
-            #                                 n_confusing_labels= 9,
-            #                                 train=False, partial=True)
-            # testloaderOut_cam = get_biased_mnist_dataloader(root = './datasets/MNIST', batch_size=1,
-            #                                 data_label_correlation= 1,
-            #                                 n_confusing_labels= 9,
-            #                                 train=False, partial=True)
+                                             shuffle=True, num_workers=2)           
         else:
             testsetout = torchvision.datasets.ImageFolder("./datasets/ood_datasets/{}".format(out_dataset),
                                         transform= val_transform)
             testloaderOut = torch.utils.data.DataLoader(testsetout, batch_size=args.ood_batch_size,
                                              shuffle=True, num_workers=2)
-            testloaderOut_cam = torch.utils.data.DataLoader(testsetout, batch_size= 1,
-                                             shuffle=True, num_workers=2)
-        if CAM:
-            return testloaderOut, testloaderOut_cam
-        else: 
-            return testloaderOut
+        return testloaderOut
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
