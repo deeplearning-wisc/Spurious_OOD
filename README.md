@@ -1,3 +1,4 @@
+
 # Rethinking Out-of-distribution Detection: A Perspective from Domain Invariance
 This codebase provides a Pytorch implementation for the paper: Rethinking Out-of-distribution Detection: A Perspective from Domain Invariance. Some parts of the codebase are adapted from [ODIN](https://github.com/facebookresearch/odin), [Deep Mahalanobis Detector](https://github.com/pokaxpoka/deep_Mahalanobis_detector), [NTOM](https://github.com/jfc43/informative-outlier-mining), [DomainBed](https://github.com/facebookresearch/DomainBed), [Rebias](https://github.com/clovaai/rebias) and [GDRO](https://github.com/kohpangwei/group_DRO).
 
@@ -20,7 +21,7 @@ Our experiments are conducted on Ubuntu Linux 20.04 with Python 3.8 and Pytorch 
 ### In-distribution Datasets
 
 - In-distribution training sets:
-  - [CelebA](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html): Large-scale CelebFaces Attributes Dataset. 
+  - [CelebA](http://mmlab.ie.cuhk.edu.hk/projects/CelebA.html): Large-scale CelebFaces Attributes Dataset. The data we used for this task is listed in `datasets/celebA/celebA_split.csv`, and after downloading the dataset, please place the images in the folder of `datasets/celebA/img_align_celeba/`. 
   - ColorMINST:  A colour-biased version of the original [MNIST](http://yann.lecun.com/exdb/mnist/) Dataset. 
   - WaterBirds:  Similar to the construction in [Group_DRO](https://github.com/kohpangwei/group_DRO), this dataset is constructed by cropping out birds from photos in the Caltech-UCSD Birds-200-2011 (CUB) dataset (Wah et al., 2011) and transferring them onto backgrounds from the Places dataset (Zhou et al., 2017).
 
@@ -64,18 +65,19 @@ Notes for some of the arguments:
 * `--name`: by convention, here we specify the name as METHOD_CORR. Users are welcome to use other names for convenience.
 
 Note that currently we support running with a single gpu. Support for Distributed training will be provided soon.
-### Waterbirds
+### WaterBirds
 * `datasets/cub_dataset.py`: provides the dataloader for WaterBirds datasets of multiple correlations.
-* `datasets/generate_waterbird.py`: generate the combination of bird and background images with a preset correlation.
-* `datasets/generate_placebg.py`: subsample background images of specific kinds as the OOD data.
- A sample script to run model training and ood evaluation task on Color MNIST is as follows:
+* `datasets/generate_waterbird.py`: generate the combination of bird and background images with a preset correlation. You can simply run `python generate_waterbird.py` to generate the dataset and the dataset will be stored as `datasets/waterbird_completexx_forest2water2`, where `xx` is the string of the two digits after the decimal point, for example when r=0.9, `xx`=90.
+* `datasets/generate_placebg.py`: subsample background images of specific kinds as the OOD data. You can simply run `python generate_placebg.py` to generate the OOD dataset, and it will be stored as `datasets/ood_datasets/placesbg/`.
+(Before the generation of WaterBirds dataset, you need to download and change the path of CUB dataset and Places dataset first as specified in `generate_waterbird.py`.)
+ A sample script to run model training and ood evaluation task on WaterBirds is as follows:
 ```bash
 python train_bg.py --gpu-ids 0 --in-dataset waterbird --model resnet50 --epochs 100 --save-epoch 50 --lr 0.00001 --weight-decay 0.05 --data_label_correlation 0.9 --domain-num 4 --method cdann --name cdann_r_0_9 --exp-name cdann_r_0_9_2021-05-31_10:59:55
 python test_bg.py --gpu-ids 0 --in-dataset waterbird --model resnet50 --test_epochs 100 --data_label_correlation 0.9 --method cdann --name cdann_r_0_9 --exp-name cdann_r_0_9_2021-05-31_10:59:55
 python present_results_py --in-dataset waterbird --name cdann_r_0_9 --test_epochs 100
 ```
 Notes for some of the arguments:
-* `--data_label_correlation`: selected from 0.5, 0.7, 0.9, 0.95
+* `--data_label_correlation`: selected from 0.5, 0.7, 0.9, 0.95.
 
 ### CelebA
 * `datasets/celebA_dataset.py`: provides the dataloader for CelebA datasets and OOD datasets.
