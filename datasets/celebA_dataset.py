@@ -17,7 +17,7 @@ class celebADataset(Dataset):
     def __init__(self, split):
         self.split_dict = {
             'train': 0,
-            'validation': 1,
+            'val': 1,
             'test': 2
         }
         self.env_dict = {
