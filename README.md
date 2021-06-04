@@ -54,14 +54,16 @@ To run the experiments, you need to first download and place the datasets in the
 
 Here is an example for training on the ColorMNIST Dataset and OOD evaluation:
 ```bash
-python train_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --epochs 10 --save-epoch 10 --data_label_correlation 0.45 --domain-num 8 --method cdann --name cdann_r_0_45 --exp-name cdann_r_0_9_2021-05-31_10:59:55
+python train_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --epochs 10 --save-epoch 10 --data_label_correlation 0.45 --domain-num 8 --method cdann --name cdann_r_0_45 --exp-name cdann_r_0_45_2021-05-31_10:59:55
 python test_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --test_epochs 10 --data_label_correlation 0.45 --method cdann --name cdann_r_0_45 --exp-name cdann_r_0_45_2021-05-31_10:59:55
 python present_results_py --in-dataset color_mnist --name cdann_r_0_45 --test_epochs 10
 ```
 Notes for some of the arguments:
 * `--data_label_correlation`: the correlation between labels and spurious feature (which is the background color here), as explained in the paper.
 * `--method`: selected from 'erm', 'irm', 'gdro', 'rex', 'dann', 'cdann', 'rebias'. The same applies to the experiments below.
+* `--name`: by convention, here we specify the name as METHOD_CORR. Users are welcome to use other names for convenience.
 
+Note that currently we support running with a single gpu. Support for Distributed training will be provided soon.
 ### Waterbirds
 * `datasets/cub_dataset.py`: provides the dataloader for WaterBirds datasets of multiple correlations.
 * `datasets/generate_waterbird.py`: generate the combination of bird and background images with a preset correlation.
