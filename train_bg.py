@@ -562,7 +562,7 @@ def validate(val_loader, model, criterion, epoch, log, method):
             end = time.time()
 
             if i % args.print_freq == 0:
-                log.debug('Test: [{0}/{1}]\t'
+                log.debug('Validate: [{0}/{1}]\t'
                     'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                     'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
                     'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
