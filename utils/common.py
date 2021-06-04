@@ -31,3 +31,33 @@ class AverageMeter(object):
         self.sum += self.val * n
         self.count += n
         self.avg = self.sum / self.count
+
+
+def accuracy(output, target, topk=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    maxk = max(topk)
+    batch_size = target.size(0)
+
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0)
+        res.append(correct_k.mul_(100.0 / batch_size))
+    return res
+
+
+def save_checkpoint(state, epoch, name = None):
+    """Saves checkpoint to disk"""
+    directory = "/nobackup/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
+    # directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
+    # directory = "/nobackup-slow/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, 
+            # name=args.name, exp=args.exp_name)
+    os.makedirs(directory, exist_ok=True)
+    if name == None:
+        filename = directory + 'checkpoint_{}.pth.tar'.format(epoch)
+    else: 
+        filename = directory + 'checkpoint_{}.pth.tar'.format(name)
+    torch.save(state, filename)
