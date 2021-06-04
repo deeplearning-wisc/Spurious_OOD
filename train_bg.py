@@ -55,7 +55,7 @@ parser.add_argument('--weight-decay', '--wd', default=0.0001, type=float,
 parser.add_argument('--data_label_correlation', default=1, type=float,
                     help='data_label_correlation')
 # saving, naming and logging
-parser.add_argument('--exp-name', default="erm_r_0_5_2021-05-25", type=str, 
+parser.add_argument('--exp-name', required= True, type=str, 
                     help='help identify checkpoint')
 parser.add_argument('--name', default="erm_nccl_debug", type=str,
                     help='name of experiment')
@@ -491,10 +491,7 @@ def dann_train(model, train_loaders, optimizer, epoch, n_epoch, log, cdann=False
             if data is None:
                 return
             data, target = data.cuda(), target.cuda()
-            if len(train_loaders) == 1:
-                domain_label = env.long().cuda()
-            else:
-                domain_label = torch.full([len(data)], i).long().cuda()
+            domain_label = env.long().cuda()
             if cdann:
                 _, class_output, domain_output = model(input_data=data, alpha=alpha, y=target)
                 y_counts = F.one_hot(target).sum(dim=0)
