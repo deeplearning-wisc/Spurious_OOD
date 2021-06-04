@@ -62,9 +62,8 @@ python present_results_py --in-dataset color_mnist --name cdann_r_0_45 --test_ep
 Notes for some of the arguments:
 * `--data_label_correlation`: the correlation between labels and spurious feature (which is the background color here), as explained in the paper.
 * `--method`: selected from 'erm', 'irm', 'gdro', 'rex', 'dann', 'cdann', 'rebias'. The same applies to the experiments below.
-* `--name`: by convention, here we specify the name as METHOD_CORR. Users are welcome to use other names for convenience.
-
-Note that currently we support running with a single gpu. Support for Distributed training will be provided soon.
+* `--name`: by convention, here we specify the name as Method_Correlation. Users are welcome to use other names for convenience.
+* `--gpu-ids`: the index of the gpu to be used. Currently we support running with a single gpu. Support for Distributed training will be provided soon.
 ### WaterBirds
 * `datasets/cub_dataset.py`: provides the dataloader for WaterBirds datasets of multiple correlations.
 * `datasets/generate_waterbird.py`: generate the combination of bird and background images with a preset correlation. You can simply run `python generate_waterbird.py` to generate the dataset and the dataset will be stored as `datasets/waterbird_completexx_forest2water2`, where `xx` is the string of the two digits after the decimal point, for example when r=0.9, `xx`=90.
