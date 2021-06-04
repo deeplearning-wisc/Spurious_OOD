@@ -69,7 +69,8 @@ Notes for some of the arguments:
 * `datasets/generate_waterbird.py`: generate the combination of bird and background images with a preset correlation. You can simply run `python generate_waterbird.py` to generate the dataset and the dataset will be stored as `datasets/waterbird_completexx_forest2water2`, where `xx` is the string of the two digits after the decimal point, for example when r=0.9, `xx`=90.
 * `datasets/generate_placebg.py`: subsample background images of specific kinds as the OOD data. You can simply run `python generate_placebg.py` to generate the OOD dataset, and it will be stored as `datasets/ood_datasets/placesbg/`.
 (Before the generation of WaterBirds dataset, you need to download and change the path of CUB dataset and Places dataset first as specified in `generate_waterbird.py`.)
- A sample script to run model training and ood evaluation task on WaterBirds is as follows:
+
+A sample script to run model training and ood evaluation task on WaterBirds is as follows:
 ```bash
 python train_bg.py --gpu-ids 0 --in-dataset waterbird --model resnet50 --epochs 100 --save-epoch 50 --lr 0.00001 --weight-decay 0.05 --data_label_correlation 0.9 --domain-num 4 --method cdann --name cdann_r_0_9 --exp-name cdann_r_0_9_2021-05-31_10:59:55
 python test_bg.py --gpu-ids 0 --in-dataset waterbird --model resnet50 --test_epochs 100 --data_label_correlation 0.9 --method cdann --name cdann_r_0_9 --exp-name cdann_r_0_9_2021-05-31_10:59:55
@@ -80,6 +81,8 @@ Notes for some of the arguments:
 
 ### CelebA
 * `datasets/celebA_dataset.py`: provides the dataloader for CelebA datasets and OOD datasets.
+
+A sample script to run model training and ood evaluation task on CelebA is as follows:
 ```bash
 python train_bg.py --gpu-ids 0 --in-dataset celebA --model resnet50 --epochs 50 --save-epoch 25 --lr 0.00001 --weight-decay 0.05 --data_label_correlation 0.8 --domain-num 4 --method cdann --name cdann_r_0_8 --exp-name cdann_r_0_8_2021-05-31_10:59:55
 python test_bg.py --gpu-ids 0 --in-dataset celebA --model resnet50 --test_epochs 50 --data_label_correlation 0.8 --method cdann --name cdann_r_0_8 --exp-name cdann_r_0_8_2021-05-31_10:59:55
