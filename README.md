@@ -4,10 +4,10 @@ This codebase provides Pytorch implementation for the paper: Rethinking Out-of-d
 ## Abstract
 Modern neural networks can assign high confidence to inputs drawn from outside the training distribution, posing threats to models in real-world deployments. While much research attention has been placed on designing new out-of-distribution (OOD) detection methods, the precise definition of OOD is often left in vagueness and falls short of the desired notion of OOD in reality. In this paper, we present a new formalization through the lens of domain invariance, and model the data shifts by taking into account both the invariant and non-invariant (spurious) features. Of a particular challenge, we show that competitive OOD detection methods can fail to detect an important type of OOD samples---spurious OOD---which contains no invariant feature yet with similar non-invariant features as the in-distribution data. Further, we show that such failure cases cannot be easily mitigated, even when the models are trained with recent popular domain invariance learning objectives. We provide theoretical insights on why reliance on non-invariant features leads to high OOD detection error. Our work aims to facilitate the understanding of OOD samples and their evaluations, as well as the exploration of invariant prediction methods that enhance OOD detection. 
 
-## MAIN Results
+## Main Results
 ![main](main.png)
 
-## REquired packages
+## Required Packages
 The following packages are required to be installed:
 
 * Python 3.8
