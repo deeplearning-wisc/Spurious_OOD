@@ -95,7 +95,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='OOD training for multi-label classification')
     parser.add_argument('-b', '--batch-size', default=64, type=int,
                     help='mini-batch size (default: 64) used for training')
-    parser.add_argument('--multi-gpu', default=False, type=bool)
     args = parser.parse_args()
 
     dataloader = get_waterbird_dataloader(args, 0.9, split='train')

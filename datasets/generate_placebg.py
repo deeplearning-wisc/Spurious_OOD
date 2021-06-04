@@ -15,7 +15,6 @@ target_places = [
     ['bamboo_forest', 'forest/broadleaf'],  # Land backgrounds
     ['ocean', 'lake/natural']]              # Water backgrounds
 
-val_frac = 0.2             # What fraction of the training data to use as validation
 confounder_strength = 0.6 # Determines relative size of majority vs. minority groups
 dataset_name = 'placesbg'
 ######################################################################################
@@ -34,10 +33,6 @@ for idx, target_places in enumerate(target_places):
     place_filenames = []
 
     for target_place in target_places:
-        # target_place_full = f'/{target_place[0]}/{target_place}'
-        # assert (np.sum(place_ids_df['place_name'] == target_place_full) == 1)
-        # target_place_ids.append(place_ids_df.index[place_ids_df['place_name'] == target_place_full][0])
-        # print(f'train category {idx} {target_place_full} has id {target_place_ids[idx]}')
 
         # Read place filenames associated with target_place
         place_filenames += [

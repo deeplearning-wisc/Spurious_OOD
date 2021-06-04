@@ -52,16 +52,18 @@ To run the experiments, you need to first download and place the datasets in the
 ### Color MNIST
 * `datasets/color_mnist.py` downloads the original MNIST and applies colour biases on images by itself. No extra preparation is needed on the user side.
 
-Commands to run model training and ood evaluation tasks on Color MNIST are as follows:
+Here is an example for training on the ColorMNIST Dataset and OOD evaluation:
 ```bash
-python train_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --epochs 10 --save-epoch 10 --data_label_correlation 0.9 --domain-num 8 --method cdann --name cdann_r_0_9 --exp-name cdann_r_0_9_2021-05-31_10:59:55
-python test_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --test_epochs 10 --data_label_correlation 0.9 --method cdann --name cdann_r_0_9 --exp-name cdann_r_0_9_2021-05-31_10:59:55
-python present_results_py --in-dataset color_mnist --name cdann_r_0_9 --test_epochs 10
+python train_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --epochs 10 --save-epoch 10 --data_label_correlation 0.45 --domain-num 8 --method cdann --name cdann_r_0_45 --exp-name cdann_r_0_45_2021-05-31_10:59:55
+python test_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --test_epochs 10 --data_label_correlation 0.45 --method cdann --name cdann_r_0_45 --exp-name cdann_r_0_45_2021-05-31_10:59:55
+python present_results_py --in-dataset color_mnist --name cdann_r_0_45 --test_epochs 10
 ```
 Notes for some of the arguments:
-* `--data_label_correlation`: selected from 0.5, 0.7, 0.9, 1.0, which respectively correspond to the correlation coefficient of 0.25, 0.35, 0.45, 0.5 in the paper.
+* `--data_label_correlation`: the correlation between labels and spurious feature (which is the background color here), as explained in the paper.
 * `--method`: selected from 'erm', 'irm', 'gdro', 'rex', 'dann', 'cdann', 'rebias'. The same applies to the experiments below.
+* `--name`: by convention, here we specify the name as METHOD_CORR. Users are welcome to use other names for convenience.
 
+Note that currently we support running with a single gpu. Support for Distributed training will be provided soon.
 ### Waterbirds
 * `datasets/cub_dataset.py`: provides the dataloader for WaterBirds datasets of multiple correlations.
 * `datasets/generate_waterbird.py`: generate the combination of bird and background images with a preset correlation.
@@ -84,102 +86,3 @@ python present_results_py --in-dataset waterbird --name cdann_r_0_8 --test_epoch
 ```
 Notes for some of the arguments:
 * `--data_label_correlation`: the correlation for this experiment is fixed as 0.8.
-
-
-### Examples
-Here we provide a sample of commands for training (CIFAR-10 as an example):
-
-```python
-# train an vanilla model (for MSP, Mahalanobis, Energy, and ODIN)
-python train.py --name vanilla --in-dataset CIFAR-10 --auxiliary-dataset imagenet --epochs 100 
-
-# train an SOFL model
-python train_sofl.py --name SOFL --in-dataset CIFAR-10 --auxiliary-dataset imagenet --epochs 100 --ss-epochs 100 
-
-# train an OE model
-python train_oe.py --name OE --in-dataset CIFAR-10 --auxiliary-dataset imagenet --epochs 100 
-
-# train an CCU model
-python train_ccu.py --name CCU --in-dataset CIFAR-10 --auxiliary-dataset imagenet --epochs 100 
-
-# train an NTOM model
-python train_ntom.py --name NTOM --in-dataset CIFAR-10 --auxiliary-dataset imagenet --epochs 100  --quantile 0.125
-
-# train an Energy-regularized model
-python train_energy.py --name Energy-OE --in-dataset CIFAR-10 --auxiliary-dataset imagenet --epochs 100 
-
-# train an BOM model
-python train_bom.py --name BOM --in-dataset CIFAR-10 --auxiliary-dataset imagenet --epochs 100 
-```
-
-
-
-In general, to evaluate an OOD detection method, you can use the following command: 
-
-`python eval_ood_detection.py --in-dataset {in-distribution dataset} --name {experiment name} --method {scoring function} --epochs {evalutaion epoch}`
-
-`{in-distribution dataset}` can be`CIFAR-10` or `CIFAR-100`. 
-
-`{scoring function}` can be `msp`, `odin`, `mahalanobis`, `sofl`, or `atom`. 
-
-`{experiment name}` is the name of the model that you have trained. The model type should match the corresponding scoring function. See the following table for the matchings: 
-
-`{epochs}` is the checkpoint epoch (or epochs) at which you want to test the OOD detection. The default value is 100. (if multiple tests at different epochs are desired, you can use e.g. "60 70 80 90 100")
-
-| Method | Scoring Function Name |
-| ------------- | ------------- |
-| vanilla  |  msp |
-| vanilla  | odin  |
-| vanilla  | mahalanobis  |
-| SOFL     |  sofl |
-| OE       |  msp  |
-| NTOM  | ATOM |
-| CCU      |  msp |
-| BOM (K+1 scheme) | ATOM |
-
-Here we provide a sample of commands for evaluating the OOD performance of various methods:
-
-```python
-# Generate evaluation results for MSP
-python eval_ood_detection.py --name vanilla --method msp
-
-# Generate evaluation results for ODIN:
-python eval_ood_detection.py --name vanilla --method odin
-
-# Generate evaluation results for Mahalanobis:
-python tune_mahalanobis_hyperparams.py --name vanilla
-python eval_ood_detection.py --name vanilla --method mahalanobis
-
-# Generate evaluation results for Energy:
-python get_score.py --name Energy 
-
-# Generate evaluation results for BOM:
-python get_score.py --name BOM 
-
-# Generate evaluation results for SOFL:
-python eval_ood_detection.py --name SOFL --method sofl
-
-# Generate evaluation results for OE:
-python eval_ood_detection.py --name OE --method msp
-
-# Generate evaluation results for CCU:
-python eval_ood_detection.py --name CCU --method msp
-
-# Generate evaluation results for NTOM:
-python eval_ood_detection.py --name NTOM --method atom
-
-# Present OOD detection metrics based on results:
-python compute_metrics.py --name vanilla --method msp
-python compute_metrics.py --name vanilla --method odin
-python compute_metrics.py --name vanilla --method mahalanobis
-python compute_metrics.py --name SOFL --method sofl
-python compute_metrics.py --name OE --method msp
-python compute_metrics.py --name CCU --method msp
-python compute_metrics.py --name NTOM --method atom
-python get_results.py --name Energy 
-python get_results.py --name BOM 
-```
-
-
-
-Note that we will merge the evaluation script for enegy-regulazied training and testing (i.e. Energy and BOM) with the script for evaluating other methods.
