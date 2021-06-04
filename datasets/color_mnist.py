@@ -71,7 +71,17 @@ class BiasedMNIST(MNIST):
         self.data = self.data[indices].numpy()
         self.targets = self.targets[indices]
         self.biased_targets = self.biased_targets[indices]
-
+        # y, bg, cmap
+        self.env_dict = {
+            (0, 0, "1"): 0,
+            (0, 1, "1"): 1,
+            (1, 0, "1"): 2,
+            (1, 1, "1"): 3,
+            (0, 0, "2"): 4,
+            (0, 1, "2"): 5,
+            (1, 0, "2"): 6,
+            (1, 1, "2"): 7
+        }
     @property
     def raw_folder(self):
         return os.path.join(self.root, 'raw')
@@ -147,7 +157,8 @@ class BiasedMNIST(MNIST):
         if self.target_transform is not None:
             target = self.target_transform(target)
 
-        return img, target, int(self.biased_targets[index])
+        bg_label = int(self.biased_targets[index])
+        return img, target, self.env_dict[(target, bg_label, self.cmap)]
 
 
 class ColourBiasedMNIST(BiasedMNIST):
@@ -204,7 +215,7 @@ def generate_custom_ood_dataset(name, save_labels, data_label_correlation = 1, n
     loader = get_biased_mnist_dataloader(args = None, root = './datasets/MNIST', batch_size=1,
                                             data_label_correlation= data_label_correlation,
                                             n_confusing_labels= n_confusing_labels,
-                                            train=train, partial=partial, cmap = "5")
+                                            train=train, partial=partial, cmap = "2")
     idx_to_class = {v: k for k, v in loader.dataset.class_to_idx.items()}
     result_path = f"datasets/ood_datasets/{name}"
     for i, (images, labels, _) in enumerate(loader):
