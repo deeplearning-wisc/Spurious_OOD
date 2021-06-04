@@ -10,8 +10,7 @@ Modern neural networks can assign high confidence to inputs drawn from outside t
 ## REquired packages
 The following packages are required to be installed:
 
-- Python 3.8
-
+* Python 3.8
 * PyTorch 1.6
 * Scipy
 * Numpy
