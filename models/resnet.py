@@ -149,4 +149,4 @@ class Resnet(nn.Module):
 #         return feature, class_output
 
 if __name__ == "__main__":
-    print(Resnet(n_classes=2,model='resnet18',method='cdann',domain_num=2))
+    print(Resnet(n_classes=2, model='resnet18', method='cdann', domain_num=2))

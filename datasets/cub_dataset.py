@@ -13,7 +13,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 class WaterbirdDataset(Dataset):
-    def __init__(self, data_correlation, train=True):
+    def __init__(self, data_correlation, split):
         self.split_dict = {
             'train': 0,
             'val': 1,
@@ -25,7 +25,7 @@ class WaterbirdDataset(Dataset):
             (1, 0): 2,
             (1, 1): 3
         }
-        self.train = train
+        self.split = split
         self.dataset_name = "waterbird_complete"+"{:0.2f}".format(data_correlation)[-2:]+"_forest2water2"
         self.dataset_dir = os.path.join("datasets", self.dataset_name)
         if not os.path.exists(self.dataset_dir):
@@ -33,15 +33,12 @@ class WaterbirdDataset(Dataset):
                 f'{self.dataset_dir} does not exist yet. Please generate the dataset first.') 
         self.metadata_df = pd.read_csv(
             os.path.join(self.dataset_dir, 'metadata.csv'))
-        if self.train:
-            self.metadata_df = self.metadata_df[self.metadata_df['split']==self.split_dict['train']]
-        else:
-            self.metadata_df = self.metadata_df[self.metadata_df['split']==self.split_dict['test']]
+        self.metadata_df = self.metadata_df[self.metadata_df['split']==self.split_dict[self.split]]
 
         self.y_array = self.metadata_df['y'].values
         self.place_array = self.metadata_df['place'].values
         self.filename_array = self.metadata_df['img_filename'].values
-        self.transform = get_transform_cub(self.train)
+        self.transform = get_transform_cub(self.split=='train')
 
     def __len__(self):
         return len(self.filename_array)
@@ -109,4 +106,4 @@ if __name__ == "__main__":
     parser.add_argument('--multi-gpu', default=False, type=bool)
     args = parser.parse_args()
 
-    dataloader = get_waterbird_dataloader(args, 0.9, train=True)
+    dataloader = get_waterbird_dataloader(args, 0.9, split='train')

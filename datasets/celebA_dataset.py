@@ -14,7 +14,7 @@ warnings.filterwarnings("ignore")
 
 
 class celebADataset(Dataset):
-    def __init__(self, train=True):
+    def __init__(self, split):
         self.split_dict = {
             'train': 0,
             'validation': 1,
@@ -26,7 +26,7 @@ class celebADataset(Dataset):
             (1, 0): 2,
             (1, 1): 3
         }
-        self.train = train
+        self.split = split
         self.dataset_name = 'celebA'
         self.dataset_dir = os.path.join("/nobackup/spurious_ood", self.dataset_name)
         if not os.path.exists(self.dataset_dir):
@@ -34,15 +34,12 @@ class celebADataset(Dataset):
                 f'{self.dataset_dir} does not exist yet. Please generate the dataset first.')
         self.metadata_df = pd.read_csv(
             os.path.join(self.dataset_dir, 'celebA_split.csv'))
-        if self.train:
-            self.metadata_df = self.metadata_df[self.metadata_df['split']==self.split_dict['train']]
-        else:
-            self.metadata_df = self.metadata_df[self.metadata_df['split']==self.split_dict['test']]
+        self.metadata_df = self.metadata_df[self.metadata_df['split']==self.split_dict[self.split]]
 
         self.y_array = self.metadata_df['Gray_Hair'].values
         self.gender_array = self.metadata_df['Male'].values
         self.filename_array = self.metadata_df['image_id'].values
-        self.transform = get_transform_cub(self.train)
+        self.transform = get_transform_cub(self.split=='train')
 
     def __len__(self):
         return len(self.filename_array)
@@ -118,18 +115,10 @@ def get_transform_cub(train):
 def get_celebA_dataloader(args, train=True):
     kwargs = {'pin_memory': False, 'num_workers': 8, 'drop_last': True}
     dataset = celebADataset(train=train)
-    if args.multi_gpu:
-            ddp_sampler = DistributedSampler(dataset, num_replicas=args.n_gpus, rank=args.local_rank)
-            dataloader = DataLoader(dataset=dataset,
-                                    batch_size=args.batch_size,
-                                    sampler=ddp_sampler,
-                                    shuffle=False,
-                                    **kwargs)
-    else:
-        dataloader = DataLoader(dataset=dataset,
-                                    batch_size=args.batch_size,
-                                    shuffle=True,
-                                    **kwargs)
+    dataloader = DataLoader(dataset=dataset,
+                                batch_size=args.batch_size,
+                                shuffle=True,
+                                **kwargs)
     return dataloader
 
 
@@ -153,5 +142,5 @@ if __name__ == "__main__":
     parser.add_argument('--multi-gpu', default=False, type=bool)
     args = parser.parse_args()
 
-    dataloader = get_celebA_dataloader(args, train=True)
+    dataloader = get_celebA_dataloader(args, split='train')
     ood_dataloader = get_celebA_ood_dataloader(args)
