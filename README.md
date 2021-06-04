@@ -1,4 +1,4 @@
-# Rethinking out-of-distribution detection: A Perspective from domain invariance
+# Rethinking Out-of-distribution Detection: A Perspective from Domain Invariance
 This codebase provides Pytorch implementation for the paper: Rethinking Out-of-distribution Detection: A Perspective from Domain Invariance. Some codes are adapted from [ODIN](https://github.com/facebookresearch/odin), [Outlier Exposure](https://github.com/hendrycks/outlier-exposure), [Deep Mahalanobis Detector](https://github.com/pokaxpoka/deep_Mahalanobis_detector) , [NTOM](https://github.com/jfc43/informative-outlier-mining), [DomainBed](https://github.com/facebookresearch/DomainBed), [Rebias](https://github.com/clovaai/rebias) and [GDRO](https://github.com/kohpangwei/group_DRO).
 
 ## Abstract
