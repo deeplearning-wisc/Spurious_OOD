@@ -80,21 +80,13 @@ def get_transform_cub(train):
         ])
     return transform
 
-def get_waterbird_dataloader(args, data_label_correlation, train=True):
+def get_waterbird_dataloader(args, data_label_correlation, split):
     kwargs = {'pin_memory': False, 'num_workers': 8, 'drop_last': True}
-    dataset = WaterbirdDataset(data_correlation=data_label_correlation, train=train)
-    if args.multi_gpu:
-            ddp_sampler = DistributedSampler(dataset, num_replicas=args.n_gpus, rank=args.local_rank)
-            dataloader = DataLoader(dataset=dataset,
-                                    batch_size=args.batch_size,
-                                    sampler=ddp_sampler,
-                                    shuffle=False,
-                                    **kwargs)
-    else:
-        dataloader = DataLoader(dataset=dataset,
-                                    batch_size=args.batch_size,
-                                    shuffle=True,
-                                    **kwargs)
+    dataset = WaterbirdDataset(data_correlation=data_label_correlation, split=split)
+    dataloader = DataLoader(dataset=dataset,
+                                batch_size=args.batch_size,
+                                shuffle=True,
+                                **kwargs)
     return dataloader
 
 

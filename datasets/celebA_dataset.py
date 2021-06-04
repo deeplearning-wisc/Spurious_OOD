@@ -112,9 +112,9 @@ def get_transform_cub(train):
     return transform
 
 
-def get_celebA_dataloader(args, train=True):
+def get_celebA_dataloader(args, split):
     kwargs = {'pin_memory': False, 'num_workers': 8, 'drop_last': True}
-    dataset = celebADataset(train=train)
+    dataset = celebADataset(split)
     dataloader = DataLoader(dataset=dataset,
                                 batch_size=args.batch_size,
                                 shuffle=True,
