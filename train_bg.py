@@ -203,7 +203,7 @@ def main():
         prec1 = validate(val_loader, model, criterion, epoch, log, args.method)
         
         if (epoch + 1) % args.save_epoch == 0:
-            save_checkpoint({
+            save_checkpoint(args, {
                     'epoch': epoch + 1,
                     'state_dict_model': model.state_dict(),
             }, epoch + 1, name="best") 

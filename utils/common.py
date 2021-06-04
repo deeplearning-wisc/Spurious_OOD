@@ -1,3 +1,6 @@
+import os
+import torch
+
 class UnNormalize(object):
     def __init__(self, mean, std):
         self.mean = mean
@@ -49,7 +52,7 @@ def accuracy(output, target, topk=(1,)):
     return res
 
 
-def save_checkpoint(state, epoch, name = None):
+def save_checkpoint(args, state, epoch, name = None):
     """Saves checkpoint to disk"""
     directory = "/nobackup/spurious_ood/checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
     # directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
