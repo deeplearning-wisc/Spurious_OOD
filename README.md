@@ -27,8 +27,7 @@ Our experiments are conducted on Ubuntu Linux 20.04 with Python 3.8 and Pytorch 
 
 ###  Non-spurious OOD Test Sets
 
-We provide links and instructions to download each dataset:
-
+Following common practice, we choose three datasets with diverse semantics as non-spurious OOD test sets. We provide links and instructions to download each dataset:
 * [Textures](https://www.robots.ox.ac.uk/~vgg/data/dtd/download/dtd-r1.0.1.tar.gz): download it and place it in the folder of `datasets/ood_datasets/dtd`.
 * [LSUN-R](https://www.dropbox.com/s/moqh2wh8696c3yl/LSUN_resize.tar.gz): download it and place it in the folder of `datasets/ood_datasets/LSUN_resize`.
 * [iSUN](https://www.dropbox.com/s/ssz7qxfqae0cca5/iSUN.tar.gz): download it and place it in the folder of `datasets/ood_datasets/iSUN`.
