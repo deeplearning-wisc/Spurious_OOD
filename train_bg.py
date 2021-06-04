@@ -17,7 +17,6 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
 from models import Resnet, bagnet18, SimpleConvNet, ReBiasModels
-from tensorboard_logger import configure, log_value
 
 from torch.utils.data import Sampler, DataLoader
 from utils import RbfHSIC, MinusRbfHSIC
@@ -60,8 +59,6 @@ parser.add_argument('--exp-name', default="erm_r_0_5_2021-05-25", type=str,
                     help='help identify checkpoint')
 parser.add_argument('--name', default="erm_nccl_debug", type=str,
                     help='name of experiment')
-parser.add_argument('--tensorboard',
-                    help='Log progress to TensorBoard', action='store_true')
 parser.add_argument('--log_name', type = str, default = "info.log",
                     help='Name of the Log File')
 # Device options
@@ -73,6 +70,8 @@ parser.add_argument('--local_rank', default=-1, type=int,
 parser.add_argument('--manualSeed', type=int, help='manual seed')
 parser.add_argument('--n-g-nets', default=1, type=int,
                     help="the number of networks for g_model in ReBias")
+parser.add_argument('--penalty-multiplier', default=1.1, type=float,
+                    help="the penalty multiplier used in IRM training")
 
 args = parser.parse_args()
 
@@ -108,7 +107,6 @@ def flatten(list_of_lists):
     return itertools.chain.from_iterable(list_of_lists)
 
 def main():
-    if args.tensorboard: configure("runs/%s"%(args.name))
 
     log = logging.getLogger(__name__)
     formatter = logging.Formatter('%(asctime)s : %(message)s')
@@ -192,7 +190,7 @@ def main():
             rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoch)
             model = f_model
         elif args.method == "dann" or args.method == "cdann":
-            dann_train(model, train_loaders, optimizer, epoch, args.epochs, cdann=(args.method=="cdann"))    
+            dann_train(model, train_loaders, optimizer, epoch, args.epochs, log, cdann=(args.method=="cdann"))    
         elif args.method == "irm":
             irm_train(model, train_loaders, criterion, optimizer, epoch, log)    
         elif args.method == "rex":
@@ -261,11 +259,6 @@ def train(model, train_loaders, criterion, optimizer, epoch, log):
                         loss=nat_losses, top1=nat_top1))
             batch_idx += 1
 
-    # log to TensorBoard
-    if args.tensorboard:
-        log_value('nat_train_loss', nat_losses.avg, epoch)
-        log_value('nat_train_acc', nat_top1.avg, epoch)
-
 def compute_irm_penalty(losses, dummy):
   g1 = grad(losses[0::2].mean(), dummy, create_graph=True)[0] # dim 1 e.g. tensor([0.2479])
   g2 = grad(losses[1::2].mean(), dummy, create_graph=True)[0]
@@ -280,7 +273,7 @@ def irm_train(model, train_loaders, criterion, optimizer, epoch, log):
     train_loaders = [iter(x) for x in train_loaders]
     dummy_w = torch.nn.Parameter(torch.Tensor([1.0])).cuda()
     batch_idx = 0
-    penalty_multiplier = epoch ** 1.1
+    penalty_multiplier = epoch ** args.penalty_multiplier
     log.debug(f'Using penalty multiplier {penalty_multiplier}')
     while True:
         error = 0
@@ -303,7 +296,7 @@ def irm_train(model, train_loaders, criterion, optimizer, epoch, log):
         optimizer.step()
 
         if batch_idx % 10 == 0:
-            log.debug('Train Epoch: {} [{}/{} ({:.0f}%)]\tIRM_V2 loss: {:.6f}\tGrad penalty: {:.6f}'.format(
+            log.debug('Train Epoch: {} [{}/{} ({:.0f}%)]\tIRM loss: {:.6f}\tGrad penalty: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loaders[0]),
                     100. * batch_idx / len(train_loaders[0]), error.item(), penalty.item()))
         # print('First 20 logits', output.data.cpu()numpy()[:20])
@@ -429,6 +422,7 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
 
     model = ReBiasModels(f_model, g_model)
     train_loaders = [iter(x) for x in train_loaders]
+
     while True:
         for loader in train_loaders:
             model.train()
@@ -440,7 +434,7 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
                 update_g(model, data, target)
             update_f(model, data, target)
 
-def dann_train(model, train_loaders, optimizer, epoch, n_epoch, cdann=False):
+def dann_train(model, train_loaders, optimizer, epoch, n_epoch, log, cdann=False):
     '''
     Adapted from DomainBed https://github.com/facebookresearch/DomainBed/blob/master/domainbed/algorithms.py
     '''
@@ -451,6 +445,12 @@ def dann_train(model, train_loaders, optimizer, epoch, n_epoch, cdann=False):
     for x in train_loaders:
         len_loader += len(x)
     train_loaders = [iter(x) for x in train_loaders]
+
+    end = time.time()
+    batch_time = AverageMeter()
+    nat_losses = AverageMeter()
+    nat_top1 = AverageMeter()
+    batch_idx = 0
 
     while True:
         for (i, loader) in enumerate(train_loaders):
@@ -479,8 +479,27 @@ def dann_train(model, train_loaders, optimizer, epoch, n_epoch, cdann=False):
                 err_src_domain = loss_domain(domain_output, domain_label)
 
             err = err_src_class + err_src_domain
+
+            # measure accuracy and record loss
+            nat_prec1 = accuracy(class_output.data, target, topk=(1,))[0]
+            nat_losses.update(err.data, input.size(0))
+            nat_top1.update(nat_prec1, input.size(0))
+
             err.backward()
             optimizer.step()  
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+
+            if batch_idx % 10 == 0:
+                log.debug('Epoch: [{0}][{1}/{2}]\t'
+                    'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                    'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
+                    'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                        epoch, batch_idx, len_loader, batch_time=batch_time,
+                        loss=nat_losses, top1=nat_top1))
+            batch_idx += 1
 
 def validate(val_loader, model, criterion, epoch, log, method):
     """Perform validation on the validation set"""
@@ -522,10 +541,6 @@ def validate(val_loader, model, criterion, epoch, log, method):
                         top1=top1))
 
     log.debug(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
-    # log to TensorBoard
-    if args.tensorboard:
-        log_value('val_loss', losses.avg, epoch)
-        log_value('val_acc', top1.avg, epoch)
     return top1.avg
 
 def save_checkpoint(state, epoch, name = None):
