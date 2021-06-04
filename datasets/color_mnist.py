@@ -1,8 +1,5 @@
-"""ReBias
-Copyright (c) 2020-present NAVER Corp.
-MIT license
-Python implementation of Biased-MNIST.
-Adapted from https://github.com/clovaai/rebias
+"""
+Color MNIST Dataset. Adapted from https://github.com/clovaai/rebias
 """
 import os
 import numpy as np
@@ -54,12 +51,6 @@ class BiasedMNIST(MNIST):
                   [255, 0, 0], [255, 0, 0],[255, 0, 0], [255, 0, 0], [255, 0, 0]]
     COLOUR_MAP2 = [[128, 0, 255], [255, 0, 128], [0, 0, 255], [225, 225, 0], [225, 0, 225],
                   [255, 0, 0], [255, 0, 0],[0, 255, 0], [0, 255, 0], [0, 255, 0]] 
-    COLOUR_MAP3 = [[0, 0, 255], [128, 0, 128], [0, 0, 255], [225, 225, 0], [225, 0, 225],
-                  [255, 0, 0], [255, 0, 0],[0, 255, 0], [0, 255, 0], [0, 255, 0]]  
-    COLOUR_MAP4 = [[255, 255, 0], [255, 192, 203], [0, 0, 255], [225, 225, 0], [225, 0, 225],
-                  [255, 0, 0], [255, 0, 0],[0, 255, 0], [0, 255, 0], [0, 255, 0]]   
-    COLOUR_MAP5 = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], 
-                    [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]]
 
 
     def __init__(self, root, cmap, train=True, transform=None, target_transform=None,
@@ -69,7 +60,6 @@ class BiasedMNIST(MNIST):
                          download=download)
         self.cmap = cmap
         self.random = True
-        # self.Train = train
         self.Partial = partial
         self.data_label_correlation = data_label_correlation
         self.n_confusing_labels = n_confusing_labels
@@ -101,54 +91,47 @@ class BiasedMNIST(MNIST):
         if self.n_confusing_labels > 9 or self.n_confusing_labels < 1:
             raise ValueError(self.n_confusing_labels)
 
-        indices = np.where((self.targets == label).numpy())[0] # find all the indices in self.targets (original MNIST) with the label (e.g. 0)
+        indices = np.where((self.targets == label).numpy())[0] 
         self._shuffle(indices)
-        indices = torch.LongTensor(indices) # still a list of indices, but with dtype = torch.int64
+        indices = torch.LongTensor(indices) 
 
         n_samples = len(indices)    
         n_correlated_samples = int(n_samples * self.data_label_correlation)
         n_decorrelated_per_class = int(np.ceil((n_samples - n_correlated_samples) / (self.n_confusing_labels)))
-        # print(f"######checking########### label: {label} total num of samples: {n_samples}; n_correlated_samples: {n_correlated_samples }; \
-        #                                         n_decorrelated_per_class: {n_decorrelated_per_class} ")
         correlated_indices = indices[:n_correlated_samples]
-        bias_indices[label] = torch.cat([bias_indices[label], correlated_indices]) # update bias_indices of the label. good trick: can cat empty tensor with a tensor list 
+        bias_indices[label] = torch.cat([bias_indices[label], correlated_indices])
 
         decorrelated_indices = torch.split(indices[n_correlated_samples:], n_decorrelated_per_class)
-        if self.Partial: # temp GDRO 
+        if self.Partial:
             other_labels = [_label % 2 for _label in range(label + 1, label + 1 + self.n_confusing_labels)]
         else:
             other_labels = [_label % 10 for _label in range(label + 1, label + 1 + self.n_confusing_labels)]
-        self._shuffle(other_labels) # e.g. if current label = 0, then shuffled other_labels = [8, 4, 2, 7, 5, 1, 9, 6, 3]
-                                    # if current label = 2, n_confusing_labels = 4, then other labels = [3,4,5,6]
+        self._shuffle(other_labels)
 
-        for idx, _indices in enumerate(decorrelated_indices): # ([5192. 4961, ...]. [...]. [...], [...]), each block stores indices that originally belongs to label
-            _label = other_labels[idx] # we want to change the label of each block to one of other_labels
+        for idx, _indices in enumerate(decorrelated_indices): 
+            _label = other_labels[idx] 
             bias_indices[_label] = torch.cat([bias_indices[_label], _indices])
 
-    # core function in init()
     def build_biased_mnist(self):
         """Build biased MNIST.
         """
-        if self.Partial: # temp GDRO
+        if self.Partial: 
             n_labels = 2
         else: 
             n_labels = self.targets.max().item() + 1
 
-        bias_indices = {label: torch.LongTensor() for label in range(n_labels)} #value of each key is an empty int64 tensor 
+        bias_indices = {label: torch.LongTensor() for label in range(n_labels)} 
         for label in range(n_labels):
-            self._update_bias_indices(bias_indices, label) #update the indices list corresponding to each label
+            self._update_bias_indices(bias_indices, label) 
 
         data = torch.ByteTensor()
         targets = torch.LongTensor()
         biased_targets = []
 
         for bias_label, indices in bias_indices.items():
-            _data, _targets = self._make_biased_mnist(indices, bias_label, self.cmap) # now we have colorized images with target labels
-            # if self.Partial: 
-            #     if torch.any(_targets >= 5): # only works for correlation = 1
-            #         continue
+            _data, _targets = self._make_biased_mnist(indices, bias_label, self.cmap) 
             data = torch.cat([data, _data])
-            targets = torch.cat([targets, _targets]) # targets are the real target labels in MNIST
+            targets = torch.cat([targets, _targets]) 
             biased_targets.extend([bias_label] * len(indices))
 
         biased_targets = torch.LongTensor(biased_targets)
@@ -179,16 +162,16 @@ class ColourBiasedMNIST(BiasedMNIST):
                                                 cmap = cmap)
 
     def _binary_to_colour(self, data, colour):
-        fg_data = torch.zeros_like(data) # e.g. shape of data with label 0: torch.Size([5923, 28, 28])
-        fg_data[data != 0] = 255 # data != 0 is a mask which indicates the pixels that are not background; maximize the intensity of every point
-        fg_data[data == 0] = 0  #background remains 0
-        fg_data = torch.stack([fg_data, fg_data, fg_data], dim=1) # 1D to 3D
+        fg_data = torch.zeros_like(data)
+        fg_data[data != 0] = 255 
+        fg_data[data == 0] = 0  
+        fg_data = torch.stack([fg_data, fg_data, fg_data], dim=1) 
 
         bg_data = torch.zeros_like(data)
         bg_data[data == 0] = 1
         bg_data[data != 0] = 0
-        bg_data = torch.stack([bg_data, bg_data, bg_data], dim=3) #bg_data is a 3D binary mask that indicates the pixels of the background area
-        bg_data = bg_data * torch.ByteTensor(colour) # torch.ByteTensor(colour) e.g. tensor([255, 0, 0], dtype=torch.uint8); dtype of ByteTensor is unit8 i.e. 8-bit integer (unsigned)
+        bg_data = torch.stack([bg_data, bg_data, bg_data], dim=3) 
+        bg_data = bg_data * torch.ByteTensor(colour) 
         bg_data = bg_data.permute(0, 3, 1, 2)
 
         data = fg_data + bg_data
@@ -197,16 +180,8 @@ class ColourBiasedMNIST(BiasedMNIST):
     def _make_biased_mnist(self, indices, label, cmap):
         if cmap == "1": 
             label = self.COLOUR_MAP1[label]
-            # indices = indices[: len(indices)//2]
         elif cmap == "2":
             label = self.COLOUR_MAP2[label]
-            # indices = indices[len(indices)//2:]
-        elif cmap == "3":
-            label = self.COLOUR_MAP3[label]
-        elif cmap == "4":
-            label = self.COLOUR_MAP4[label]
-        elif cmap == "5":
-            label = self.COLOUR_MAP5[label]
 
         return self._binary_to_colour(self.data[indices], label), self.targets[indices]
 
@@ -221,18 +196,8 @@ def get_biased_mnist_dataloader(args, root, batch_size, data_label_correlation, 
     dataset = ColourBiasedMNIST(root, train=train, transform=transform,
                                 download=True, data_label_correlation=data_label_correlation,
                                 n_confusing_labels=n_confusing_labels, partial=partial, cmap = cmap)
-    if args is not None and args.multi_gpu:
-            ddp_sampler = DistributedSampler(dataset, num_replicas=args.n_gpus, rank=args.local_rank)
-            dataloader = data.DataLoader(dataset=dataset,
-                                    batch_size=batch_size,
-                                    sampler=ddp_sampler,
-                                    shuffle=False,
-                                    **kwargs)
-    else:
-        dataloader = data.DataLoader(dataset=dataset,
-                                    batch_size=batch_size,
-                                    shuffle=True,
-                                    **kwargs)
+    dataloader = data.DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, **kwargs)
+    
     return dataloader
 
 def generate_custom_ood_dataset(name, save_labels, data_label_correlation = 1, n_confusing_labels = 9, train=False, partial=False):
