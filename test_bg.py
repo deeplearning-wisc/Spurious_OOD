@@ -15,7 +15,7 @@ from models import Resnet
 from datasets.color_mnist import get_biased_mnist_dataloader
 from datasets.cub_dataset import WaterbirdDataset
 from datasets.celebA_dataset import get_celebA_dataloader, get_celebA_ood_dataloader
-from utils import AverageMeter
+from utils import AverageMeter, accuracy
 
 parser = argparse.ArgumentParser(description='OOD Detection Evaluation based on Energy-score')
 
@@ -201,21 +201,6 @@ def get_id_energy(args, model, val_loader, epoch, log, method):
                         epoch, i, len(val_loader), in_energy=in_energy))
         log.debug(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
         return sum_energy
-
-def accuracy(output, target, topk=(1,)):
-    """Computes the precision@k for the specified values of k"""
-    maxk = max(topk)
-    batch_size = target.size(0)
-
-    _, pred = output.topk(maxk, 1, True, True)
-    pred = pred.t()
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-    res = []
-    for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0)
-        res.append(correct_k.mul_(100.0 / batch_size))
-    return res
 
 def get_ood_loader(out_dataset, CAM = False):
         mnist_transform = transforms.Compose([
