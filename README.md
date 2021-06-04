@@ -52,14 +52,14 @@ To run the experiments, you need to first download and place the datasets in the
 ### Color MNIST
 * `datasets/color_mnist.py` downloads the original MNIST and applies colour biases on images by itself. No extra preparation is needed on the user side.
 
-Commands to run model training and ood evaluation tasks on Color MNIST are as follows:
+Here is an example for training on the ColorMNIST Dataset and OOD evaluation:
 ```bash
-python train_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --epochs 10 --save-epoch 10 --data_label_correlation 0.9 --domain-num 8 --method cdann --name cdann_r_0_9 --exp-name cdann_r_0_9_2021-05-31_10:59:55
-python test_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --test_epochs 10 --data_label_correlation 0.9 --method cdann --name cdann_r_0_9 --exp-name cdann_r_0_9_2021-05-31_10:59:55
-python present_results_py --in-dataset color_mnist --name cdann_r_0_9 --test_epochs 10
+python train_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --epochs 10 --save-epoch 10 --data_label_correlation 0.45 --domain-num 8 --method cdann --name cdann_r_0_45 --exp-name cdann_r_0_9_2021-05-31_10:59:55
+python test_bg.py --gpu-ids 0 --in-dataset color_mnist --model resnet18 --test_epochs 10 --data_label_correlation 0.45 --method cdann --name cdann_r_0_45 --exp-name cdann_r_0_45_2021-05-31_10:59:55
+python present_results_py --in-dataset color_mnist --name cdann_r_0_45 --test_epochs 10
 ```
 Notes for some of the arguments:
-* `--data_label_correlation`: selected from 0.5, 0.7, 0.9, 1.0, which respectively correspond to the correlation coefficient of 0.25, 0.35, 0.45, 0.5 in the paper.
+* `--data_label_correlation`: the correlation between labels and spurious feature (which is the background color here), as explained in the paper.
 * `--method`: selected from 'erm', 'irm', 'gdro', 'rex', 'dann', 'cdann', 'rebias'. The same applies to the experiments below.
 
 ### Waterbirds
