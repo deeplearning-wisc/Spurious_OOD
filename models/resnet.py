@@ -31,7 +31,7 @@ class Resnet(nn.Module):
         self.class_classifier.add_module('c_bn1', nn.BatchNorm1d(100))
         self.class_classifier.add_module('c_relu1', nn.ReLU(True))
         self.class_classifier.add_module('c_drop1', nn.Dropout())
-        self.class_classifier.add_module('c_fc2', nn.Linear(100, self.n_classes))
+        self.class_classifier.add_module('c_fc3', nn.Linear(100, self.n_classes))
 
         if self.method == "dann" or self.method == "cdann":
             self.domain_classifier = nn.Sequential()
