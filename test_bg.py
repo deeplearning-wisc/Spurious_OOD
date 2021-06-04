@@ -202,7 +202,7 @@ def get_id_energy(args, model, val_loader, epoch, log, method):
         log.debug(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
         return sum_energy
 
-def get_ood_loader(out_dataset, CAM = False):
+def get_ood_loader(out_dataset):
         mnist_transform = transforms.Compose([
                 transforms.Resize(28),
                  transforms.CenterCrop(28),
