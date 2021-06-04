@@ -411,7 +411,7 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
         g_loss.backward()
         g_optimizer.step()
 
-    def update_f(model, data, target, log, f_lambda_outer=1):
+    def update_f(model, data, target, log, batch_idx, f_lambda_outer=1):
         end = time.time()
         model.train()
         f_optimizer.zero_grad()
@@ -447,7 +447,6 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
                 'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
                     epoch, batch_idx, len_loader, batch_time=batch_time,
                     loss=nat_losses, top1=nat_top1))
-        batch_idx += 1
 
     model = ReBiasModels(f_model, g_model)
     train_loaders = [iter(x) for x in train_loaders]
@@ -461,7 +460,8 @@ def rebias_train(f_model, g_model, train_loaders, f_optimizer, g_optimizer, epoc
             data, target = data.cuda(), target.cuda()
             for _ in range(n_g_update):
                 update_g(model, data, target)
-            update_f(model, data, target, log)
+            update_f(model, data, target, log, batch_idx)
+            batch_idx += 1
 
 def dann_train(model, train_loaders, optimizer, epoch, n_epoch, log, cdann=False):
     '''
