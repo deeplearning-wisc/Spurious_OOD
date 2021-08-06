@@ -139,6 +139,8 @@ def main():
         val_loader = get_celebA_dataloader(args, split="val")
 
     base_model = Resnet(n_classes=args.num_classes, model=args.model_arch, method=args.method, domain_num=args.domain_num)
+    if torch.cuda.device_count() > 1:
+        base_model = torch.nn.DataParallel(base_model)
 
     if args.method in ["dann", "cdann", "erm", "irm", "rex", "gdro"]:
         model = base_model.cuda()
