@@ -14,18 +14,17 @@ warnings.filterwarnings("ignore")
 
 
 class celebADataset(Dataset):
-    def __init__(self, args, split):
+    def __init__(self, split, extract_data = False):
         self.split_dict = {
             'train': 0,
             'val': 1,
             'test': 2
         }
-        # (y, gender)
         self.env_dict = {
-            (0, 0): 0,   # nongrey hair, female
-            (0, 1): 1,   # nongrey hair, male
-            (1, 0): 2,   # gray hair, female
-            (1, 1): 3    # gray hair, male
+            (0, 0): 0,
+            (0, 1): 1,
+            (1, 0): 2,
+            (1, 1): 3
         }
         self.split = split
         self.dataset_name = 'celebA'
@@ -40,30 +39,7 @@ class celebADataset(Dataset):
         self.y_array = self.metadata_df['Gray_Hair'].values
         self.gender_array = self.metadata_df['Male'].values
         self.filename_array = self.metadata_df['image_id'].values
-        self.transform = get_transform_cub(self.split=='train')
-        if self.split == 'train':
-            self.subsample(args.data_label_correlation)
-    
-    def subsample(self, ratio = 0.6):
-        np.random.seed(1)
-        train_group_idx = {
-            (0, 0): np.array([]),   # nongrey hair, female
-            (0, 1): np.array([]),   # nongrey hair, male
-            (1, 0): np.array([]),   # gray hair, female
-            (1, 1): np.array([])    # gray hair, male
-        }
-        for idx, (y, gender) in enumerate(zip(self.y_array, self.gender_array)):
-            train_group_idx[(y, gender)] = np.append(train_group_idx[(y, gender)],idx)
-        sample_size = int(ratio/(1-ratio)*len(train_group_idx[(1, 0)]))
-        undersampled_idx_00 = np.random.choice(train_group_idx[(0, 0)], sample_size, replace = False)
-        undersampled_idx_11 = np.random.choice(train_group_idx[(1, 1)], sample_size, replace = False)
-        undersampled_idx = np.concatenate( (train_group_idx[(1, 0)], undersampled_idx_00, undersampled_idx_11, train_group_idx[(0, 1)]) )
-        undersampled_idx = undersampled_idx.astype(int)
-        self.y_array = self.y_array[undersampled_idx]
-        self.gender_array = self.gender_array[undersampled_idx]
-        self.filename_array = self.filename_array[undersampled_idx]
-
-            
+        self.transform = get_transform_cub(self.split=='train', extract_data)
 
     def __len__(self):
         return len(self.filename_array)
@@ -100,8 +76,7 @@ class celebAOodDataset(Dataset):
 
     def __getitem__(self, idx):
         img_filename = os.path.join(
-            '/nobackup-slow/dataset/celeba',
-            # self.dataset_dir,
+            self.dataset_dir,
             'img_align_celeba',
             self.filename_array[idx])
         img = Image.open(img_filename).convert('RGB')
@@ -110,13 +85,13 @@ class celebAOodDataset(Dataset):
         return img, img
 
 
-def get_transform_cub(train):
+def get_transform_cub(train, extract_data = False):
     orig_w = 178
     orig_h = 218
     orig_min_dim = min(orig_w, orig_h)
     target_resolution = (224, 224)
 
-    if not train:
+    if not train or extract_data:
         transform = transforms.Compose([
             transforms.CenterCrop(orig_min_dim),
             transforms.Resize(target_resolution),
@@ -138,20 +113,21 @@ def get_transform_cub(train):
     return transform
 
 
-def get_celebA_dataloader(args, split):
-    kwargs = {'pin_memory': True, 'num_workers': 8, 'drop_last': True}
-    dataset = celebADataset(args, split)
+
+
+def get_celebA_dataloader(args, split, extract_data = False):
+    kwargs = {'pin_memory': False, 'num_workers': 8, 'drop_last': True}
+    dataset = celebADataset(split, extract_data)
+    batch_size = 1 if extract_data else args.batch_size
     dataloader = DataLoader(dataset=dataset,
-                                batch_size=args.batch_size,
+                                batch_size=batch_size,
                                 shuffle=True,
                                 **kwargs)
     return dataloader
 
-    
-
 
 def get_celebA_ood_dataloader(args):
-    kwargs = {'pin_memory': True, 'num_workers': 8, 'drop_last': True}
+    kwargs = {'pin_memory': False, 'num_workers': 8, 'drop_last': True}
     dataset = celebAOodDataset()
     dataloader = DataLoader(dataset=dataset,
                                 batch_size=args.ood_batch_size,

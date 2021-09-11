@@ -8,27 +8,29 @@ import seaborn as sns
 import pandas as pd
 
 parser = argparse.ArgumentParser(description='Present OOD Detection metrics for Energy-score')
-parser.add_argument('--name', '-n', required = True, type=str,
+parser.add_argument('--name', '-n', default = 'erm_rebuttal', type=str,
                     help='name of experiment')
-parser.add_argument('--in-dataset', default='color_mnist', type=str, help='in-distribution dataset e.g. color_mnist')
-parser.add_argument('--test_epochs', "-e", default = "10", type=str,
+parser.add_argument('--exp-name', default = 'erm_new_0.7', type=str, 
+                    help='help identify checkpoint')
+parser.add_argument('--in-dataset', default='celebA', type=str, help='in-distribution dataset e.g. color_mnist')
+parser.add_argument('--test_epochs', "-e", default = "15 20 25", type=str,
                     help='# epoch to test performance')
-parser.add_argument('--hist', default = False, type=bool,
+parser.add_argument('--hist', default = True, type=bool,
                     help='if need to plot histogram')
 args = parser.parse_args()
 
 def main():
     if args.in_dataset == "color_mnist" or args.in_dataset == "color_mnist_multi":
-        out_datasets = ['partial_color_mnist_0&1']
+        out_datasets = ['partial_color_mnist_0&1', 'gaussian', 'dtd', 'iSUN', 'LSUN_resize']
         # out_datasets = ['dtd', 'iSUN', 'LSUN_resize']
     elif args.in_dataset == "waterbird":
-        out_datasets = ['placesbg']
+        out_datasets = ['gaussian', 'placesbg', 'SVHN', 'iSUN', 'LSUN_resize', 'dtd']
     elif args.in_dataset == "celebA":
-        out_datasets = ['celebA_ood']
+        out_datasets = ['celebA_ood', 'gaussian', 'SVHN', 'iSUN', 'LSUN_resize']
     fprs = dict()
     for test_epoch in args.test_epochs.split():
         all_results_ntom = []
-        save_dir =  f"./energy_results/{args.in_dataset}/{args.name}" 
+        save_dir =  f"./energy_results/{args.in_dataset}/{args.name}/{args.exp_name}" 
         with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}.npy'), 'rb') as f:
             id_sum_energy = np.load(f)
         all_results = defaultdict(int)
@@ -44,17 +46,20 @@ def main():
             if args.hist:
                 sns.set(style="white", palette="muted")
                 sns.displot({"ID":-1 * id_sum_energy, "OOD": -1 * ood_sum_energy}, label="id", kind = "kde", fill = True, alpha = 0.5)
-                plt.title("Energy")
-                plt.ylim(0, 0.3)
-                plt.xlim(-10, 20)
+                plt.title(f"Energy Score for {out_dataset}")
+                plt.ylim(0, 0.4)
+                plt.xlim(-4,8)
                 if args.in_dataset == "color_mnist":
-                    save_res_dir = "results_new/" + args.name
+                    save_res_dir = "plots_mnist/" + args.name
                 elif args.in_dataset == "waterbird":
-                    save_res_dir = "results_waterbird/" + args.name
-                elif args.in_dataset == "color_mnist_multi":
-                    save_res_dir = "results_multi/" + args.name
-                save_name = "energy_" + out_dataset + "_" + args.name + ".png"
-                plt.savefig(os.path.join(save_res_dir, save_name), bbox_inches='tight')
+                    save_res_dir = "plots_waterbird/" + args.name
+                elif args.in_dataset == "celebA":
+                    save_res_dir = os.path.join("energy_hist_celebA", f"{args.exp_name}")
+                if not os.path.exists(save_res_dir):
+                    os.makedirs(save_res_dir)
+                save_name = os.path.join(save_res_dir, "energy_" + out_dataset + "_" + ".png")
+                # plt.savefig(os.path.join(save_res_dir, save_name), bbox_inches='tight')
+                plt.savefig(save_name, bbox_inches='tight')
         print("Avg FPR95: ", round(100 * all_results["FPR95"]/len(out_datasets),2))
         print("Avg AUROC: ", round(all_results["AUROC"]/len(out_datasets),4))
         print("Avg AUPR: ", round(all_results["AUPR"]/len(out_datasets),4))

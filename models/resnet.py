@@ -1,7 +1,9 @@
+import torch
 import torchvision
 import torch.nn as nn
 
 from utils.dann_utils import ReverseLayerF
+import torch.nn.functional as F
         
 class Identity(nn.Module):
     def __init__(self):
@@ -19,6 +21,8 @@ class Resnet(nn.Module):
 
         if model == 'resnet18':
             self.model = torchvision.models.resnet18(pretrained=True)
+        elif model == 'resnet34':
+            self.model = torchvision.models.resnet34(pretrained=True)
         elif model == 'resnet50':
             self.model = torchvision.models.resnet50(pretrained=True)
         else:
@@ -59,6 +63,42 @@ class Resnet(nn.Module):
             return feature, class_output, domain_output
 
         return feature, class_output
+
+    def feature_list(self, x):
+        out_list = []
+        out = F.relu(self.model.bn1(self.model.conv1(x)))
+        out_list.append(out)
+        out = self.model.layer1(out)
+        out_list.append(out)
+        out = self.model.layer2(out)
+        out_list.append(out)
+        out = self.model.layer3(out)
+        out_list.append(out)
+        out = self.model.layer4(out)
+        out_list.append(out)
+        out = self.model.avgpool(out)
+        out = out.view(out.size(0), -1)
+        y = self.class_classifier(out)
+        return y, out_list
+        
+    # function to extact a specific feature
+    def intermediate_forward(self, x, layer_index):
+        out = F.relu(self.model.bn1(self.model.conv1(x)))
+        if layer_index == 1:
+            out = self.model.layer1(out)
+        elif layer_index == 2:
+            out = self.model.layer1(out)
+            out = self.model.layer2(out)
+        elif layer_index == 3:
+            out = self.model.layer1(out)
+            out = self.model.layer2(out)
+            out = self.model.layer3(out)
+        elif layer_index == 4:
+            out = self.model.layer1(out)
+            out = self.model.layer2(out)
+            out = self.model.layer3(out)
+            out = self.model.layer4(out)               
+        return out
 
 if __name__ == "__main__":
     print(Resnet(n_classes=2, model='resnet18', method='cdann', domain_num=2))

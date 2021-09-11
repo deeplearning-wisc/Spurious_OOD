@@ -5,6 +5,7 @@ import shutil
 import time
 import random
 import json
+import math
 import logging
 import itertools
 import numpy as np
@@ -16,8 +17,8 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 
-from models import Resnet, bagnet18, SimpleConvNet, ReBiasModels
-from models.resnet_gram import load_model
+from models import  bagnet18, SimpleConvNet, ReBiasModels
+
 from torch.utils.data import Sampler, DataLoader
 from utils import RbfHSIC, MinusRbfHSIC, AverageMeter, save_checkpoint, accuracy
 
@@ -25,45 +26,44 @@ from datasets.color_mnist import get_biased_mnist_dataloader
 from datasets.cub_dataset import get_waterbird_dataloader
 from datasets.celebA_dataset import get_celebA_dataloader
 from torch.autograd import grad
-import math
 
-parser = argparse.ArgumentParser(description=' use resnet (pretrained)')
+parser = argparse.ArgumentParser(description='use resnet18 (not pretrained) as in the gram matrix method')
 
-parser.add_argument('--in-dataset', default="celebA", type=str, choices = ['celebA', 'color_mnist', 'waterbird'], help='in-distribution dataset e.g. IN-9')
-parser.add_argument('--model-arch', default='resnet18_gram', type=str, help='model architecture e.g. resnet50')
+parser.add_argument('--in-dataset', default="waterbird", type=str, help='in-distribution dataset e.g. IN-9')
+parser.add_argument('--model-arch', default='resnet18', type=str, help='model architecture e.g. resnet50')
 parser.add_argument('--domain-num', default=4, type=int,
                     help='the number of environments for model training')
 parser.add_argument('--method', default='erm', type=str, help='method used for model training')
-parser.add_argument('--save-epoch', default=5, type=int,
+parser.add_argument('--save-epoch', default=25, type=int,
                     help='save the model every save_epoch, default = 10') # freq; save model state_dict()
 parser.add_argument('--print-freq', '-p', default=10, type=int,
                     help='print frequency (default: 10)') # print every print-freq batches during training
 # ID train & val batch size
-parser.add_argument('-b', '--batch-size', default=256, type=int,
+parser.add_argument('-b', '--batch-size', default= 64, type=int,
                     help='mini-batch size (default: 64) used for training')
 # training schedule
 parser.add_argument('--start-epoch', default=0, type=int,
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--epochs', default=30, type=int,
+parser.add_argument('--epochs', default=50, type=int,
                     help='number of total epochs to run, default = 30')
-parser.add_argument('--lr', '--learning-rate', default=1e-4, type=float,
+parser.add_argument('--lr', '--learning-rate', default=1e-3, type=float,
                     help='initial learning rate')
 parser.add_argument('--num-classes', default=2, type=int,
                     help='number of classes for model training')
 parser.add_argument('--momentum', default=0.9, type=float, help='momentum')
-parser.add_argument('--weight-decay', '--wd', default=0.005, type=float,
+parser.add_argument('--weight-decay', '--wd', default=0.05, type=float,
                     help='weight decay (default: 0.0001)')
-parser.add_argument('--data_label_correlation', default=0.9, type=float,
+parser.add_argument('--data_label_correlation', default=0.7, type=float,
                     help='data_label_correlation')
 # saving, naming and logging
-parser.add_argument('--exp-name', default = 'erm_new_0.9', type=str, 
+parser.add_argument('--exp-name', default = 'erm_rebuttal_0.8', type=str, 
                     help='help identify checkpoint')
 parser.add_argument('--name', default="erm_rebuttal", type=str,
                     help='name of experiment')
 parser.add_argument('--log_name', type = str, default = "info.log",
                     help='Name of the Log File')
 # Device options
-parser.add_argument('--gpu-ids', default='6', type=str,
+parser.add_argument('--gpu-ids', default='1', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
 parser.add_argument('--local_rank', default=-1, type=int,
                         help='rank for the current node')
@@ -76,11 +76,10 @@ parser.add_argument('--penalty-multiplier', default=1.1, type=float,
 
 parser.add_argument('--cosine', action='store_false',
                         help='using cosine annealing')
-parser.add_argument('--lr_decay_epochs', type=str, default='15,25',
-                        help=' 15, 25, 40 for waterbibrds; 10, 15 ,20 for color_mnist')
+parser.add_argument('--lr_decay_epochs', type=str, default='10,15,20',
+                        help='where to decay lr, can be a list')
 parser.add_argument('--lr_decay_rate', type=float, default=0.1,
                         help='decay rate for learning rate')
-
 args = parser.parse_args()
 
 state = {k: v for k, v in args._get_kwargs()}
@@ -111,8 +110,173 @@ if args.manualSeed is None:
 set_random_seed(args.manualSeed)
 
 
+import torchvision
+import torch
+import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
+# from utils.dann_utils import ReverseLayerF
+        
+class Identity(nn.Module):
+    def __init__(self):
+        super(Identity, self).__init__()
+        
+    def forward(self, x):
+        return x
+
+
+def conv3x3(in_planes, out_planes, stride=1):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+
+class BasicBlock(nn.Module):
+    expansion = 1
+
+    def __init__(self, in_planes, planes, stride=1):
+        super(BasicBlock, self).__init__()
+        self.conv1 = conv3x3(in_planes, planes, stride)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = conv3x3(planes, planes)
+        self.bn2 = nn.BatchNorm2d(planes)
+
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_planes != self.expansion*planes:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, self.expansion*planes, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(self.expansion*planes)
+            )
+    
+    def forward(self, x):
+        t = self.conv1(x)
+        out = F.relu(self.bn1(t))
+        t = self.conv2(out)
+        out = self.bn2(self.conv2(out))   
+        t = self.shortcut(x)
+        out += t        
+        out = F.relu(out)
+        
+        return out
+
+    # workable version 
+    def forward(self, x):
+        t = self.conv1(x)
+        out = F.relu(self.bn1(t))
+        base_model.record(t)
+        base_model.record(out)
+        t = self.conv2(out)
+        out = self.bn2(self.conv2(out))
+        base_model.record(t)
+        base_model.record(out)
+        t = self.shortcut(x)
+        out += t
+        base_model.record(t)
+        out = F.relu(out)
+        base_model.record(out)
+        
+        return out
+
+class ResNet(nn.Module):
+    def __init__(self, block, num_blocks, num_classes=2):
+        super(ResNet, self).__init__()
+        self.in_planes = 64
+
+        self.conv1 = conv3x3(3,64)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
+        self.linear = nn.Linear(512*block.expansion, num_classes)
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.collecting = False
+    
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1]*(num_blocks-1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+    
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = self.avgpool(out)
+        # out = F.avg_pool2d(out, 4)
+        out = out.view(out.size(0), -1)
+        y = self.linear(out)
+        return y
+    
+    def record(self, t):
+        if self.collecting:
+            self.gram_feats.append(t)
+    
+    def gram_feature_list(self,x):
+        self.collecting = True
+        self.gram_feats = []
+        self.forward(x)
+        self.collecting = False
+        temp = self.gram_feats
+        self.gram_feats = []
+        return temp
+    
+    def load(self, path="resnet_svhn.pth"):
+        tm = torch.load(path, map_location="cpu")        
+        self.load_state_dict(tm)
+    
+    def get_min_max(self, data, power):
+        mins = []
+        maxs = []
+        
+        for i in range(0,len(data),128):
+            batch = data[i:i+128].cuda()
+            feat_list = self.gram_feature_list(batch)
+            for L,feat_L in enumerate(feat_list):
+                if L==len(mins):
+                    mins.append([None]*len(power))
+                    maxs.append([None]*len(power))
+                
+                for p,P in enumerate(power):
+                    g_p = G_p(feat_L,P)
+                    
+                    current_min = g_p.min(dim=0,keepdim=True)[0]
+                    current_max = g_p.max(dim=0,keepdim=True)[0]
+                    
+                    if mins[L][p] is None:
+                        mins[L][p] = current_min
+                        maxs[L][p] = current_max
+                    else:
+                        mins[L][p] = torch.min(current_min,mins[L][p])
+                        maxs[L][p] = torch.max(current_max,maxs[L][p])
+        
+        return mins,maxs
+    
+    def get_deviations(self,data,power,mins,maxs):
+        deviations = []
+        
+        for i in range(0,len(data),128):            
+            batch = data[i:i+128].cuda()
+            feat_list = self.gram_feature_list(batch)
+            batch_deviations = []
+            for L,feat_L in enumerate(feat_list):
+                dev = 0
+                for p,P in enumerate(power):
+                    g_p = G_p(feat_L,P)
+                    
+                    dev +=  (F.relu(mins[L][p]-g_p)/torch.abs(mins[L][p]+10**-6)).sum(dim=1,keepdim=True)
+                    dev +=  (F.relu(g_p-maxs[L][p])/torch.abs(maxs[L][p]+10**-6)).sum(dim=1,keepdim=True)
+                batch_deviations.append(dev.cpu().detach().numpy())
+            batch_deviations = np.concatenate(batch_deviations,axis=1)
+            deviations.append(batch_deviations)
+        deviations = np.concatenate(deviations,axis=0)
+        
+        return deviations
+
 def flatten(list_of_lists):
     return itertools.chain.from_iterable(list_of_lists)
+
 
 def train(model, train_loaders, criterion, optimizer, epoch, log):
     """Train for one epoch on the training set"""
@@ -137,8 +301,8 @@ def train(model, train_loaders, criterion, optimizer, epoch, log):
             input = input.cuda()
             target = target.cuda()
 
-            _, nat_output = model(input)
-            
+            # _, nat_output = model(input)
+            nat_output = model(input)
             nat_loss = criterion(nat_output, target)
 
             # measure accuracy and record loss
@@ -453,7 +617,8 @@ def validate(val_loader, model, criterion, epoch, log, method):
             elif method == "cdann":
                 _, output = model(input, alpha=0, y=None)
             else:
-                _, output = model(input)
+              #   _, output = model(input)
+                output = model(input)
             loss = criterion(output, target)
 
             # measure accuracy and record loss
@@ -490,8 +655,8 @@ def adjust_learning_rate(args, optimizer, epoch):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-def main():
-
+if __name__ == '__main__':
+   
     log = logging.getLogger(__name__)
     formatter = logging.Formatter('%(asctime)s : %(message)s')
     fileHandler = logging.FileHandler(os.path.join(directory, args.log_name), mode='w')
@@ -522,13 +687,8 @@ def main():
         train_loader = get_celebA_dataloader(args, split="train")
         val_loader = get_celebA_dataloader(args, split="val")
 
-    if args.model_arch == 'resnet18_gram':
-        pretrained = True
-        if args.in_dataset == 'color_mnist':
-            pretrained = False #True for celebA & waterbird ; False for Color_MNIST
-        base_model = load_model(pretrained) #load resnet18 gram version
-    else:
-        base_model = Resnet(n_classes=args.num_classes, model=args.model_arch, method=args.method, domain_num=args.domain_num)
+    # base_model = Resnet(n_classes=args.num_classes, model=args.model_arch, method=args.method, domain_num=args.domain_num)
+    base_model = ResNet(BasicBlock, [2,2,2,2], num_classes=2)
     if torch.cuda.device_count() > 1:
         base_model = torch.nn.DataParallel(base_model)
 
@@ -601,5 +761,3 @@ def main():
                     'epoch': epoch + 1,
                     'state_dict_model': model.state_dict(),
             }, epoch + 1) 
-if __name__ == '__main__':
-    main()

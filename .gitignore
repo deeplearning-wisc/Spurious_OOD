@@ -1,8 +1,10 @@
 **/datasets/MNIST
 **/datasets/ood_datasets
-**/datasets/random_shape
-**/datasets/svhn
-**/checkpoints/color_mnist
+**/checkpoints
+**/energy_results
+**/output
+**/plot_mnist
+**/plot_waterbird
 *.DS_Store
 *.pyc
 *.npy

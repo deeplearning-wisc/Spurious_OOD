@@ -13,7 +13,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 class WaterbirdDataset(Dataset):
-    def __init__(self, data_correlation, split):
+    def __init__(self, data_correlation, split, root_dir = 'datasets'):
         self.split_dict = {
             'train': 0,
             'val': 1,
@@ -26,8 +26,9 @@ class WaterbirdDataset(Dataset):
             (1, 1): 3
         }
         self.split = split
+        self.root_dir  = '/nobackup-slow/spurious_ood'
         self.dataset_name = "waterbird_complete"+"{:0.2f}".format(data_correlation)[-2:]+"_forest2water2"
-        self.dataset_dir = os.path.join("datasets", self.dataset_name)
+        self.dataset_dir = os.path.join(self.root_dir, self.dataset_name)
         if not os.path.exists(self.dataset_dir):
             raise ValueError(
                 f'{self.dataset_dir} does not exist yet. Please generate the dataset first.') 
