@@ -1,11 +1,9 @@
 import numpy as np
-from matplotlib import pyplot as plt
 from utils import anom_utils
 import os
 import argparse
 from collections import defaultdict
-import seaborn as sns
-import pandas as pd
+
 
 parser = argparse.ArgumentParser(description='Present OOD Detection metrics for Energy-score')
 parser.add_argument('--name', '-n', default = 'erm_rebuttal', type=str,
@@ -15,14 +13,11 @@ parser.add_argument('--exp-name', default = 'erm_new_0.7', type=str,
 parser.add_argument('--in-dataset', default='celebA', type=str, help='in-distribution dataset e.g. color_mnist')
 parser.add_argument('--test_epochs', "-e", default = "15 20 25", type=str,
                     help='# epoch to test performance')
-parser.add_argument('--hist', default = True, type=bool,
-                    help='if need to plot histogram')
 args = parser.parse_args()
 
 def main():
     if args.in_dataset == "color_mnist" or args.in_dataset == "color_mnist_multi":
         out_datasets = ['partial_color_mnist_0&1', 'gaussian', 'dtd', 'iSUN', 'LSUN_resize']
-        # out_datasets = ['dtd', 'iSUN', 'LSUN_resize']
     elif args.in_dataset == "waterbird":
         out_datasets = ['gaussian', 'placesbg', 'SVHN', 'iSUN', 'LSUN_resize', 'dtd']
     elif args.in_dataset == "celebA":
@@ -43,23 +38,6 @@ def main():
             all_results["AUROC"] += auroc
             all_results["AUPR"] += aupr
             all_results["FPR95"] += fpr
-            if args.hist:
-                sns.set(style="white", palette="muted")
-                sns.displot({"ID":-1 * id_sum_energy, "OOD": -1 * ood_sum_energy}, label="id", kind = "kde", fill = True, alpha = 0.5)
-                plt.title(f"Energy Score for {out_dataset}")
-                plt.ylim(0, 0.4)
-                plt.xlim(-4,8)
-                if args.in_dataset == "color_mnist":
-                    save_res_dir = "plots_mnist/" + args.name
-                elif args.in_dataset == "waterbird":
-                    save_res_dir = "plots_waterbird/" + args.name
-                elif args.in_dataset == "celebA":
-                    save_res_dir = os.path.join("energy_hist_celebA", f"{args.exp_name}")
-                if not os.path.exists(save_res_dir):
-                    os.makedirs(save_res_dir)
-                save_name = os.path.join(save_res_dir, "energy_" + out_dataset + "_" + ".png")
-                # plt.savefig(os.path.join(save_res_dir, save_name), bbox_inches='tight')
-                plt.savefig(save_name, bbox_inches='tight')
         print("Avg FPR95: ", round(100 * all_results["FPR95"]/len(out_datasets),2))
         print("Avg AUROC: ", round(all_results["AUROC"]/len(out_datasets),4))
         print("Avg AUPR: ", round(all_results["AUPR"]/len(out_datasets),4))

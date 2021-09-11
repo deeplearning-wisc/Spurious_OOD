@@ -95,29 +95,3 @@ class SVHN(data.Dataset):
             return len(self.data)
         else:
             return len(self.data)
-
-    def _check_integrity(self):
-        root = self.root
-        if self.split == "train_and_extra":
-            md5 = self.split_list[self.split][0][2]
-            fpath = os.path.join(root, self.filename)
-            train_integrity = check_integrity(fpath, md5)
-            extra_filename = self.split_list[self.split][1][1]
-            md5 = self.split_list[self.split][1][2]
-            fpath = os.path.join(root, extra_filename)
-            return check_integrity(fpath, md5) and train_integrity
-        else:
-            md5 = self.split_list[self.split][2]
-            fpath = os.path.join(root, self.filename)
-            return check_integrity(fpath, md5)
-
-    def download(self):
-        if self.split == "train_and_extra":
-            md5 = self.split_list[self.split][0][2]
-            download_url(self.url, self.root, self.filename, md5)
-            extra_filename = self.split_list[self.split][1][1]
-            md5 = self.split_list[self.split][1][2]
-            download_url(self.url, self.root, extra_filename, md5)
-        else:
-            md5 = self.split_list[self.split][2]
-            download_url(self.url, self.root, self.filename, md5)

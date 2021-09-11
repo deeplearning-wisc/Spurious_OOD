@@ -9,7 +9,6 @@ class GaussianDataset(torch.utils.data.Dataset):
             else:
                 self.labels = labels
             images = torch.normal(0.5, 0.25, size=(dataset_size,3,img_size,img_size))
-            # images =  torch.randn(dataset_size,3,img_size,img_size) + 0.5
             self.images = torch.clamp(images, 0, 1)
             self.transform = transform
 

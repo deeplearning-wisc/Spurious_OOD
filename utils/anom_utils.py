@@ -1,10 +1,5 @@
 import numpy as np
-import torch.nn as nn
 import sklearn.metrics as sk
-import time
-import torch
-from torch.autograd import Variable
-import os.path
 
 recall_level_default = 0.95
 
