@@ -73,10 +73,10 @@ class BiasedMNIST(MNIST):
         self.biased_targets = self.biased_targets[indices]
         # y, bg, cmap
         self.env_dict = {
-            (0, 0, "1"): 0, #red 0 (0.4)
-            (0, 1, "1"): 1, #green 0 (0.1)
-            (1, 0, "1"): 2, #red 1   (0.1)
-            (1, 1, "1"): 3, #green 1 (0.4)
+            (0, 0, "1"): 0, #red 0 
+            (0, 1, "1"): 1, #green 0 
+            (1, 0, "1"): 2, #red 1  
+            (1, 1, "1"): 3, #green 1 
             (0, 0, "2"): 4, #purple 0
             (0, 1, "2"): 5, #magenta 0
             (1, 0, "2"): 6, #purple 1

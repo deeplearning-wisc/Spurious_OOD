@@ -72,8 +72,7 @@ class celebADataset(Dataset):
         y = self.y_array[idx]
         gender = self.gender_array[idx]
         img_filename = os.path.join(
-            '/nobackup-slow/dataset/celeba',
-            # self.dataset_dir,
+            self.dataset_dir,
             'img_align_celeba',
             self.filename_array[idx])
         img = Image.open(img_filename).convert('RGB')
@@ -100,8 +99,7 @@ class celebAOodDataset(Dataset):
 
     def __getitem__(self, idx):
         img_filename = os.path.join(
-            '/nobackup-slow/dataset/celeba',
-            # self.dataset_dir,
+            self.dataset_dir,
             'img_align_celeba',
             self.filename_array[idx])
         img = Image.open(img_filename).convert('RGB')
