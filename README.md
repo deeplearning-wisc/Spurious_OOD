@@ -92,3 +92,16 @@ python present_results_py --in-dataset waterbird --name erm_r_0_8 --exp-name erm
 ```
 Notes for some of the arguments:
 * `--data_label_correlation`: the correlation for this experiment and can be selected from[0.7, 0.8].
+
+### For bibtex citation
+
+```
+@misc{ming2021impact,
+      title={On the Impact of Spurious Correlation for Out-of-distribution Detection}, 
+      author={Yifei Ming and Hang Yin and Yixuan Li},
+      year={2021},
+      eprint={2109.05642},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG}
+}
+```
