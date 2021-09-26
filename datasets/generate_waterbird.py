@@ -7,9 +7,9 @@ from tqdm import tqdm
 from dataset_utils import crop_and_resize, combine_and_mask
 
 ################ Paths and other configs - Set these #################################
-cub_dir = '/nobackup-slow/dataset/CUB_200_2011'
-places_dir = '/nobackup-slow/dataset/places365_standard'
-output_dir = 'datasets/'
+cub_dir = '/nobackup/sonic/CUB_200_2011'
+places_dir = '/nobackup/sonic/places365_standard'
+output_dir = '/u/s/o/sonic/private/Spurious_OOD/datasets'
 
 target_places = [
     ['bamboo_forest', 'forest/broadleaf'],  # Land backgrounds
