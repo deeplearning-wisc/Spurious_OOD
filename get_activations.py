@@ -1,7 +1,7 @@
 import argparse
 import os
 import logging
-import copy
+from functools import partial
 
 import numpy as np
 import torch
@@ -69,43 +69,51 @@ device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
 
 
 def get_ood_activations(args, model, val_loader, epoch, log, method):
-    activations = torch.tensor([]).cuda()
+    activations = []
+    activations_np = torch.tensor([])
+
+    def save_activation(activations, mod, inp, out):
+        activations.append(inp[0]) 
+
+    model.linear.register_forward_hook(partial(save_activation, activations))
 
     model.eval()
     log.debug("######## Start collecting activations ########")
     with torch.no_grad():
         for i, (images, labels) in enumerate(val_loader): # batch
             images = images.cuda()
-            outputs = model(images)
-            # print(outputs.shape)
-            # print(((labels == wanted_label)).sum())
+            _, outputs = model(images)
             
-            batchtivations = outputs
-            batchtivations = torch.reshape(batchtivations, (batchtivations.shape[0], 2*512)) # map dimension
-            activations = torch.cat([activations, batchtivations], axis=0)
+            batchtivations = activations[-1].cpu() # get activations from this batch
+            activations_np = torch.cat([activations_np, batchtivations], axis=0) # add to final structure
             
-        return activations
+    print('OOD examples', activations_np.shape[0])
+    return activations_np
 
 def get_id_activations(args, model, val_loader, epoch, log, method):
-    activations = torch.tensor([]).cuda()
+    activations = []
+    activations_np = torch.tensor([])
 
     wanted_envir = 3 # waterbird and water place. see cub_dataset.py for definitions
+
+    def save_activation(activations, mod, inp, out):
+        activations.append(inp[0]) 
+
+    model.linear.register_forward_hook(partial(save_activation, activations))
 
     model.eval()
     log.debug("######## Start collecting activations ########")
     with torch.no_grad():
         for i, (images, labels, envs) in enumerate(val_loader): # batch
             images = images.cuda()
-            #print('here')
-            outputs = model(images)
-            print(outputs.shape)
-            # print(((labels == wanted_label)).sum())
+            _, outputs = model(images)
             
-            batchtivations = outputs[(envs == wanted_envir)]
-            # batchtivations = torch.reshape(batchtivations, (batchtivations.shape[0], 2*512)) # map dimension
-            activations = torch.cat([activations, batchtivations], axis=0)
+            batchtivations = activations[-1][(envs == wanted_envir)].cpu() # get activations from this batch, filter by desired class/environment
+            activations_np = torch.cat([activations_np, batchtivations], axis=0) # add to final structure
             
-        return activations
+        
+    print('ID examples', activations_np.shape[0])
+    return activations_np
 
 
 def get_ood_loader(args, out_dataset, in_dataset = 'color_mnist'):
@@ -186,8 +194,6 @@ def main():
         model = load_model()
 
     model = model.cuda()
-    # model1 = torch.nn.Sequential(*(list(model.children())[:-2]))
-    # print(model1)
 
     test_epochs = args.test_epochs.split()
     if args.in_dataset == 'waterbird':
@@ -207,14 +213,6 @@ def main():
                 new_state_dict[k] = v
             state_dict = new_state_dict
         model.load_state_dict(state_dict)
-        
-        
-        print(model)
-        newmodel = torch.nn.Sequential(*(list(model.children())[:-2]))
-        print(newmodel)
-        model = newmodel
-        
-        # return
 
         model.eval()
         model.cuda()
