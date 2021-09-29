@@ -1,6 +1,7 @@
 import argparse
 import os
 import logging
+import copy
 
 import numpy as np
 import torch
@@ -80,7 +81,7 @@ def get_ood_activations(args, model, val_loader, epoch, log, method):
             # print(((labels == wanted_label)).sum())
             
             batchtivations = outputs
-            batchtivations = torch.reshape(batchtivations, (batchtivations.shape[0], 7*7*512)) # map dimension
+            batchtivations = torch.reshape(batchtivations, (batchtivations.shape[0], 2*512)) # map dimension
             activations = torch.cat([activations, batchtivations], axis=0)
             
         return activations
@@ -95,12 +96,13 @@ def get_id_activations(args, model, val_loader, epoch, log, method):
     with torch.no_grad():
         for i, (images, labels, envs) in enumerate(val_loader): # batch
             images = images.cuda()
+            #print('here')
             outputs = model(images)
-            # print(outputs.shape)
+            print(outputs.shape)
             # print(((labels == wanted_label)).sum())
             
             batchtivations = outputs[(envs == wanted_envir)]
-            batchtivations = torch.reshape(batchtivations, (batchtivations.shape[0], 7*7*512)) # map dimension
+            # batchtivations = torch.reshape(batchtivations, (batchtivations.shape[0], 2*512)) # map dimension
             activations = torch.cat([activations, batchtivations], axis=0)
             
         return activations
@@ -205,7 +207,15 @@ def main():
                 new_state_dict[k] = v
             state_dict = new_state_dict
         model.load_state_dict(state_dict)
-        model = torch.nn.Sequential(*(list(model.children())[:-2]))
+        
+        
+        print(model)
+        newmodel = torch.nn.Sequential(*(list(model.children())[:-2]))
+        print(newmodel)
+        model = newmodel
+        
+        # return
+
         model.eval()
         model.cuda()
         save_dir =  f"./activations/{args.in_dataset}/{args.name}/{args.exp_name}"
@@ -224,6 +234,7 @@ def main():
             with open(os.path.join(save_dir, f'activations_{out_dataset}_at_epoch_{test_epoch}.npy'), 'wb') as f:
                 np.save(f, ood_activs.cpu())
 
-if __name__ == '__main__':
+if __name__ == '__main__': 
+    #--gpu-ids 0 --in-dataset waterbird --model resnet18 --test_epochs 30 --data_label_correlation 0.9 --method erm
     main()
 
