@@ -194,6 +194,7 @@ def main():
         model = load_model()
 
     model = model.cuda()
+    # w = model.linear.weight
 
     test_epochs = args.test_epochs.split()
     if args.in_dataset == 'waterbird':

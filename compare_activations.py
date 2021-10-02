@@ -21,6 +21,11 @@ print('SP shape', waas.shape)
 
 # make average activation patterns
 
+# idas = idas / idas.max()
+# hnas = hnas/hnas.max()
+# waas = waas/waas.max()
+
+
 ida = idas.mean(axis=0)
 hna = hnas.mean(axis=0)
 waa = waas.mean(axis=0)
