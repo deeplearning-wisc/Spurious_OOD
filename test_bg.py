@@ -108,7 +108,10 @@ def get_id_energy(args, model, val_loader, epoch, log, method):
     log.debug("######## Start collecting energy score ########")
     with torch.no_grad():
         for i, (images, labels, envs) in enumerate(val_loader):
-            images = images.cuda()
+
+            images = images.cuda()[envs==3]
+            labels = labels[envs==3]
+            
             _, outputs = model(images)
             all_targets = torch.cat((all_targets, labels),dim=0)
             all_preds = torch.cat((all_preds, outputs.argmax(dim=1).cpu()),dim=0)
@@ -117,7 +120,8 @@ def get_id_energy(args, model, val_loader, epoch, log, method):
             e_s = -torch.logsumexp(outputs, dim=1)
             e_s = e_s.data.cpu().numpy() 
             for j in range(NUM_ENV):
-                env_E[j].update(e_s[envs == j].mean(), len(labels[envs == j]))
+                env_E[j].update(e_s.mean(), len(labels))  #since already filtered these
+                # env_E[j].update(e_s[envs == j].mean(), len(labels[envs == j]))
             in_energy.update(e_s.mean(), len(labels)) 
             energy = np.concatenate((energy, e_s))
             energy_grey = np.concatenate((energy_grey, e_s[labels == 1]))
@@ -233,7 +237,8 @@ def main():
     if args.in_dataset == 'color_mnist':
         out_datasets = ['partial_color_mnist_0&1', 'gaussian', 'dtd', 'iSUN', 'LSUN_resize']
     elif args.in_dataset == 'waterbird':
-        out_datasets = [ 'gaussian', 'placesbg', 'SVHN', 'iSUN', 'LSUN_resize', 'dtd']
+        out_datasets = ['water', 'SVHN']
+        # out_datasets = ['gaussian', 'water', 'SVHN', 'iSUN', 'LSUN_resize', 'dtd']
     elif args.in_dataset == 'color_mnist_multi':
         out_datasets = ['partial_color_mnist_0&1']
     elif args.in_dataset == 'celebA':
