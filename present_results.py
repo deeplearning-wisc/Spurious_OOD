@@ -13,24 +13,35 @@ parser.add_argument('--exp-name', default = 'erm_new_0.7', type=str,
 parser.add_argument('--in-dataset', default='celebA', type=str, help='in-distribution dataset e.g. color_mnist')
 parser.add_argument('--test_epochs', "-e", default = "15 20 25", type=str,
                     help='# epoch to test performance')
+parser.add_argument('--top', "-t", default = "0", type=int,
+                    help='number of top units to consider, or 0 for all')
 args = parser.parse_args()
 
 def main():
     if args.in_dataset == "color_mnist" or args.in_dataset == "color_mnist_multi":
         out_datasets = ['partial_color_mnist_0&1', 'gaussian', 'dtd', 'iSUN', 'LSUN_resize']
     elif args.in_dataset == "waterbird":
-        out_datasets = ['gaussian', 'placesbg', 'SVHN', 'iSUN', 'LSUN_resize', 'dtd']
+        out_datasets = ['water', 'SVHN']
+        # out_datasets = ['gaussian', 'placesbg', 'water', 'SVHN', 'iSUN', 'LSUN_resize']#, 'dtd']
     elif args.in_dataset == "celebA":
         out_datasets = ['celebA_ood', 'gaussian', 'SVHN', 'iSUN', 'LSUN_resize']
     fprs = dict()
     for test_epoch in args.test_epochs.split():
         all_results_ntom = []
         save_dir =  f"./energy_results/{args.in_dataset}/{args.name}/{args.exp_name}" 
-        with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}.npy'), 'rb') as f:
+        # if args.top == 0:
+        #     with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}.npy'), 'rb') as f:
+        #         id_sum_energy = np.load(f)
+        # else:
+        with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}_top{args.top}.npy'), 'rb') as f:
             id_sum_energy = np.load(f)
         all_results = defaultdict(int)
         for out_dataset in out_datasets:
-            with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}.npy'), 'rb') as f:
+            # if args.top == 0:
+            #     with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}.npy'), 'rb') as f:
+            #         ood_sum_energy = np.load(f)
+            # else:
+            with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}_top{args.top}.npy'), 'rb') as f:
                 ood_sum_energy = np.load(f)
             auroc, aupr, fpr = anom_utils.get_and_print_results(-1 * id_sum_energy, -1 * ood_sum_energy, f"{out_dataset}", f" Energy Sum at epoch {test_epoch}")
             results = cal_metric(known =  -1 * id_sum_energy, novel = -1* ood_sum_energy, method = "energy sum")
