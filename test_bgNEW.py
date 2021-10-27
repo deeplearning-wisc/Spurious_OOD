@@ -51,6 +51,7 @@ parser.add_argument('--manualSeed', type=int, help='manual seed')
 parser.add_argument('--multi-gpu', default=False, type=bool)
 parser.add_argument('--local_rank', default=-1, type=int,
                         help='rank for the current node')
+parser.add_argument('--top', '-t', default=0, type=int)
 
 args = parser.parse_args()
 
@@ -123,8 +124,8 @@ def get_id_energy(args, model, val_loader, epoch, mask, log, method):
     with torch.no_grad():
         for i, (images, labels, envs) in enumerate(val_loader):
 
-            images = images.cuda()[envs==3]
-            labels = labels[envs==3]
+            images = images.cuda()#[envs==3]
+            labels = labels#[envs==3]
             
             _, outputs = model(images)
 
@@ -221,8 +222,9 @@ def get_ood_loader(args, out_dataset, in_dataset = 'color_mnist'):
         return testloaderOut
 
 
-def getactivations(top):
-    with open('activations/waterbird/erm_lr1e3wd1e3/erm_lr1e3wd1e3/activations_id_at_epoch_30.npy', 'rb') as f:
+def getactivations(top, args):
+    if top == 0: return np.ones([1,512,1,1])
+    with open(f'experiments/{args.in_dataset}/{args.name}/activations/activations_id_at_epoch_30.npy', 'rb') as f:
         acs = np.load(f)
     
     a = acs.mean(axis=0) # average ID activation pattern
@@ -270,24 +272,21 @@ def main():
 
     model = model.cuda()
 
-    top = 200 # use this many of the last units
-    mask = getactivations(top)
+    top = args.top # use this many of the last units
+    mask = getactivations(top, args)
 
     test_epochs = args.test_epochs.split()
     if args.in_dataset == 'color_mnist':
         out_datasets = ['partial_color_mnist_0&1', 'gaussian', 'dtd', 'iSUN', 'LSUN_resize']
     elif args.in_dataset == 'waterbird':
-        # out_datasets = ['water', 'SVHN']
-        out_datasets = ['gaussian', 'placesbg', 'water', 'SVHN', 'iSUN', 'LSUN_resize']#, 'dtd']
+        out_datasets = ['placesbg', 'water', 'SVHN', 'iSUN', 'LSUN_resize']
+        # out_datasets = ['gaussian', 'placesbg', 'water', 'SVHN', 'iSUN', 'LSUN_resize']#, 'dtd']
     elif args.in_dataset == 'color_mnist_multi':
         out_datasets = ['partial_color_mnist_0&1']
     elif args.in_dataset == 'celebA':
-        out_datasets = ['celebA_ood', 'gaussian', 'SVHN', 'iSUN', 'LSUN_resize']
+        out_datasets = ['celebA_ood', 'SVHN', 'iSUN', 'LSUN_resize']
 
-    if args.in_dataset == 'color_mnist':
-        cpts_directory = "./checkpoints/{in_dataset}/{name}/{exp}".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
-    else:
-        cpts_directory = "./checkpoints/{in_dataset}/{name}/{exp}".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
+    cpts_directory = "./experiments/{in_dataset}/{name}/checkpoints".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
     
     for test_epoch in test_epochs:
         cpts_dir = os.path.join(cpts_directory, "checkpoint_{epochs}.pth.tar".format(epochs=test_epoch))
@@ -302,7 +301,7 @@ def main():
         model.load_state_dict(state_dict)
         model.eval()
         model.cuda()
-        save_dir =  f"./energy_results/{args.in_dataset}/{args.name}/{args.exp_name}"
+        save_dir =  f"./experiments/{args.in_dataset}/{args.name}/energy_results"
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         print("processing ID dataset")

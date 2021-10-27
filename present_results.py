@@ -8,71 +8,68 @@ from collections import defaultdict
 parser = argparse.ArgumentParser(description='Present OOD Detection metrics for Energy-score')
 parser.add_argument('--name', '-n', default = 'erm_rebuttal', type=str,
                     help='name of experiment')
-parser.add_argument('--exp-name', default = 'erm_new_0.7', type=str, 
-                    help='help identify checkpoint')
+# parser.add_argument('--exp-name', default = 'erm_new_0.7', type=str, 
+#                     help='help identify checkpoint')
 parser.add_argument('--in-dataset', default='celebA', type=str, help='in-distribution dataset e.g. color_mnist')
 parser.add_argument('--test_epochs', "-e", default = "15 20 25", type=str,
                     help='# epoch to test performance')
-parser.add_argument('--top', "-t", default = "0", type=int,
-                    help='number of top units to consider, or 0 for all')
+parser.add_argument('--top', '-t', default=0, type=int, help='number of top-contributing neurons used at test time')
 args = parser.parse_args()
 
 def main():
     if args.in_dataset == "color_mnist" or args.in_dataset == "color_mnist_multi":
         out_datasets = ['partial_color_mnist_0&1', 'gaussian', 'dtd', 'iSUN', 'LSUN_resize']
     elif args.in_dataset == "waterbird":
-        out_datasets = ['water', 'SVHN']
-        # out_datasets = ['gaussian', 'placesbg', 'water', 'SVHN', 'iSUN', 'LSUN_resize']#, 'dtd']
+        out_datasets = ['placesbg', 'water', 'SVHN', 'iSUN', 'LSUN_resize']
+        # out_datasets = ['placesbg', 'SVHN', 'iSUN', 'LSUN_resize', ] #'dtd']
     elif args.in_dataset == "celebA":
-        out_datasets = ['celebA_ood', 'gaussian', 'SVHN', 'iSUN', 'LSUN_resize']
+        out_datasets = ['celebA_ood', 'SVHN', 'iSUN', 'LSUN_resize']
     fprs = dict()
+    s = '' # will hold all info
     for test_epoch in args.test_epochs.split():
         all_results_ntom = []
-        save_dir =  f"./energy_results/{args.in_dataset}/{args.name}/{args.exp_name}" 
-        # if args.top == 0:
-        #     with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}.npy'), 'rb') as f:
-        #         id_sum_energy = np.load(f)
-        # else:
+        save_dir =  f"./experiments/{args.in_dataset}/{args.name}/energy_results" 
         with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}_top{args.top}.npy'), 'rb') as f:
             id_sum_energy = np.load(f)
         all_results = defaultdict(int)
         for out_dataset in out_datasets:
-            # if args.top == 0:
-            #     with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}.npy'), 'rb') as f:
-            #         ood_sum_energy = np.load(f)
-            # else:
             with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}_top{args.top}.npy'), 'rb') as f:
                 ood_sum_energy = np.load(f)
-            auroc, aupr, fpr = anom_utils.get_and_print_results(-1 * id_sum_energy, -1 * ood_sum_energy, f"{out_dataset}", f" Energy Sum at epoch {test_epoch}")
+            p, auroc, aupr, fpr = anom_utils.get_and_print_results(-1 * id_sum_energy, -1 * ood_sum_energy, f"{out_dataset}", f" Energy Sum at epoch {test_epoch}")
+            s = s + p
             results = cal_metric(known =  -1 * id_sum_energy, novel = -1* ood_sum_energy, method = "energy sum")
             all_results_ntom.append(results)
             all_results["AUROC"] += auroc
             all_results["AUPR"] += aupr
             all_results["FPR95"] += fpr
-        print("Avg FPR95: ", round(100 * all_results["FPR95"]/len(out_datasets),2))
-        print("Avg AUROC: ", round(all_results["AUROC"]/len(out_datasets),4))
-        print("Avg AUPR: ", round(all_results["AUPR"]/len(out_datasets),4))
+        s = s + "Avg FPR95: " + str(round(100 * all_results["FPR95"]/len(out_datasets),2)) + '\n'
+        s = s + "Avg AUROC: " + str(round(all_results["AUROC"]/len(out_datasets),4)) + '\n'
+        s = s + "Avg AUPR: " + str(round(all_results["AUPR"]/len(out_datasets),4)) + '\n'
+        # print("HELLO")
         fprs[test_epoch] = 100 * all_results["FPR95"]/len(out_datasets)
         avg_results = compute_average_results(all_results_ntom)
-        print_results(avg_results, args.in_dataset, "All", args.name, "energy sum")
+        print_results(s, avg_results, args.in_dataset, "All", args.name, "energy sum", args.top, args.test_epochs)
 
-def print_results(results, in_dataset, out_dataset, name, method):
+def print_results(s, results, in_dataset, out_dataset, name, method, top, epoch):
     mtypes = ['FPR', 'DTERR', 'AUROC', 'AUIN', 'AUOUT']
+    s = s + 'in_distribution: ' + in_dataset + '\n'
+    s = s + 'out_distribution: '+ out_dataset + '\n'
+    s = s + 'Model Name: ' + name + '\n'
+    s = s + '\n'
 
-    print('in_distribution: ' + in_dataset)
-    print('out_distribution: '+ out_dataset)
-    print('Model Name: ' + name)
-    print('')
-
-    print(' OOD detection method: ' + method)
+    s = s + ' OOD detection method: ' + method + '\n'
     for mtype in mtypes:
-        print(' {mtype:6s}'.format(mtype=mtype), end='')
-    print('\n{val:6.2f}'.format(val=100.*results['FPR']), end='')
-    print(' {val:6.2f}'.format(val=100.*results['DTERR']), end='')
-    print(' {val:6.2f}'.format(val=100.*results['AUROC']), end='')
-    print(' {val:6.2f}'.format(val=100.*results['AUIN']), end='')
-    print(' {val:6.2f}\n'.format(val=100.*results['AUOUT']), end='')
-    print('')
+        s = s + ' {mtype:6s}'.format(mtype=mtype)
+    s = s + '\n{val:6.2f}'.format(val=100.*results['FPR'])
+    s = s + ' {val:6.2f}'.format(val=100.*results['DTERR'])
+    s = s + ' {val:6.2f}'.format(val=100.*results['AUROC'])
+    s = s + ' {val:6.2f}'.format(val=100.*results['AUIN'])
+    s = s + ' {val:6.2f}'.format(val=100.*results['AUOUT'])
+    s = s + '\n'
+    print(s)
+    file = os.path.join('experiments', in_dataset, name, 'result_epoch_{epoch}_top_{top}.txt'.format(epoch=epoch, top=top))
+    with open(file, 'w') as f:
+        f.write(s)
 
 def cal_metric(known, novel, method):
     tp, fp, fpr_at_tpr95 = get_curve(known, novel, method)
@@ -176,7 +173,7 @@ def compute_average_results(all_results):
         for mtype in mtypes:
             avg_results[mtype] += results[mtype]
 
-    print("len of all results", float(len(all_results)))
+    # print("len of all results", float(len(all_results)))
     for mtype in mtypes:
         avg_results[mtype] /= float(len(all_results))
 

@@ -77,10 +77,12 @@ def get_measures(_pos, _neg, recall_level=recall_level_default):
 
 
 def print_measures(auroc, aupr, fpr, ood, method, recall_level=recall_level_default):
-    print('\t\t\t' + ood+'_'+method)
-    print('FPR{:d}:\t\t\t{:.2f}'.format(int(100 * recall_level), 100 * fpr))
-    print('AUROC: \t\t\t{:.2f}'.format(100 * auroc))
-    print('AUPR:  \t\t\t{:.2f}'.format(100 * aupr))
+    s = ''
+    s = s + '\t\t\t' + ood+'_'+method+'\n'
+    s = s + 'FPR{:d}:\t\t\t{:.2f}\n'.format(int(100 * recall_level), 100 * fpr)
+    s = s + 'AUROC: \t\t\t{:.2f}\n'.format(100 * auroc)
+    s = s + 'AUPR:  \t\t\t{:.2f}\n'.format(100 * aupr)
+    return s
 
 def get_and_print_results(out_score, in_score, ood, method):
 
@@ -89,5 +91,5 @@ def get_and_print_results(out_score, in_score, ood, method):
     aurocs.append(measures[0]); auprs.append(measures[1]); fprs.append(measures[2])
 
     auroc = np.mean(aurocs); aupr = np.mean(auprs); fpr = np.mean(fprs)
-    print_measures(auroc, aupr, fpr, ood, method)
-    return auroc, aupr, fpr
+    s = print_measures(auroc, aupr, fpr, ood, method)
+    return s, auroc, aupr, fpr

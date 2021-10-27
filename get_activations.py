@@ -54,7 +54,7 @@ parser.add_argument('--local_rank', default=-1, type=int,
 args = parser.parse_args()
 
 state = {k: v for k, v in args._get_kwargs()}
-directory = "checkpoints/{in_dataset}/{name}/".format(in_dataset=args.in_dataset, name=args.name)
+directory = "experiments/{in_dataset}/{name}/activations".format(in_dataset=args.in_dataset, name=args.name)
 if not os.path.exists(directory):
     os.makedirs(directory)
 save_state_file = os.path.join(directory, 'test_args.txt')
@@ -108,7 +108,8 @@ def get_id_activations(args, model, val_loader, epoch, log, method):
             images = images.cuda()
             _, outputs = model(images)
             
-            batchtivations = activations[-1][(envs == wanted_envir)].cpu() # get activations from this batch, filter by desired class/environment
+            batchtivations = activations[-1].cpu() # get activations from this batch, filter by desired class/environment
+            # batchtivations = activations[-1][(envs == wanted_envir)].cpu() # get activations from this batch, filter by desired class/environment
             activations_np = torch.cat([activations_np, batchtivations], axis=0) # add to final structure
             
         
@@ -188,6 +189,8 @@ def main():
     if args.in_dataset == "waterbird":
         val_dataset = WaterbirdDataset(data_correlation=args.data_label_correlation, split='test')
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+    elif args.in_dataset == "celebA":
+        val_loader = get_celebA_dataloader(args, split='test')
 
     # create model
     if args.model_arch == 'resnet18':
@@ -200,8 +203,10 @@ def main():
     if args.in_dataset == 'waterbird':
         out_datasets = ['water', 'SVHN']
         # out_datasets = ['gaussian', 'water', 'SVHN', 'iSUN', 'LSUN_resize', 'dtd']
+    elif args.in_dataset == 'celebA':
+        out_datasets = ['celebA_ood', 'SVHN']
     
-    cpts_directory = "./checkpoints/{in_dataset}/{name}/{exp}".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
+    cpts_directory = "./experiments/{in_dataset}/{name}/checkpoints".format(in_dataset=args.in_dataset, name=args.name)
     
     for test_epoch in test_epochs:
         cpts_dir = os.path.join(cpts_directory, "checkpoint_{epochs}.pth.tar".format(epochs=test_epoch))
@@ -217,7 +222,7 @@ def main():
 
         model.eval()
         model.cuda()
-        save_dir =  f"./activations/{args.in_dataset}/{args.name}/{args.exp_name}"
+        save_dir =  f"./experiments/{args.in_dataset}/{args.name}/activations"
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         print("processing ID dataset")

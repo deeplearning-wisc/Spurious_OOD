@@ -74,8 +74,8 @@ args = parser.parse_args()
 
 state = {k: v for k, v in args._get_kwargs()}
 
-directory = "checkpoints/{in_dataset}/{name}/{exp}/".format(in_dataset=args.in_dataset, 
-            name=args.name, exp=args.exp_name)
+directory = "experiments/{in_dataset}/{name}/checkpoints".format(in_dataset=args.in_dataset, 
+            name=args.name)
 os.makedirs(directory, exist_ok=True)
 save_state_file = os.path.join(directory, 'args.txt')
 fw = open(save_state_file, 'w')
