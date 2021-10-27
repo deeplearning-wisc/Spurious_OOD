@@ -1,6 +1,7 @@
 import argparse
 import os
 import logging
+from functools import partial
 
 import numpy as np
 import torch
@@ -13,6 +14,7 @@ from torch.utils.data import DataLoader
 
 
 from models.resnet import load_model
+# from algorithms import get_algorithm_class
 from datasets.color_mnist import get_biased_mnist_dataloader
 from datasets.cub_dataset import WaterbirdDataset
 from datasets.celebA_dataset import get_celebA_dataloader, celebAOodDataset
@@ -49,6 +51,7 @@ parser.add_argument('--manualSeed', type=int, help='manual seed')
 parser.add_argument('--multi-gpu', default=False, type=bool)
 parser.add_argument('--local_rank', default=-1, type=int,
                         help='rank for the current node')
+parser.add_argument('--top', '-t', default=0, type=int)
 
 args = parser.parse_args()
 
@@ -67,7 +70,12 @@ if torch.cuda.is_available():
 device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
 
 
-def get_ood_energy(args, model, val_loader, epoch, log, method):
+def get_ood_energy(args, model, val_loader, epoch, mask, log, method):
+    def edit_activation(mask, mod, inp, out):
+        return torch.mul(out, torch.tensor(mask, dtype=torch.float32).cuda())
+
+    model.avgpool.register_forward_hook(partial(edit_activation, mask))
+
     in_energy = AverageMeter()
     model.eval()
     init = True
@@ -90,7 +98,7 @@ def get_ood_energy(args, model, val_loader, epoch, log, method):
                         epoch, i, len(val_loader), in_energy=in_energy))
         return sum_energy
 
-def get_id_energy(args, model, val_loader, epoch, log, method):
+def get_id_energy(args, model, val_loader, epoch, mask, log, method):
     in_energy = AverageMeter()
     top1 = AverageMeter()
     env_E = {0:AverageMeter(),
@@ -104,15 +112,25 @@ def get_id_energy(args, model, val_loader, epoch, log, method):
     energy_grey = np.empty(0)
     energy_nongrey = np.empty(0)
 
+    def edit_activation(mask, mod, inp, out):
+        # print(out.dtype, torch.mul(out, torch.tensor(mask, dtype=torch.float32).cuda()).dtype)
+        return torch.mul(out, torch.tensor(mask, dtype=torch.float32).cuda())
+        # return
+
+    model.avgpool.register_forward_hook(partial(edit_activation, mask))
+
     model.eval()
     log.debug("######## Start collecting energy score ########")
     with torch.no_grad():
         for i, (images, labels, envs) in enumerate(val_loader):
 
-            images = images.cuda()[envs==3]
-            labels = labels[envs==3]
+            images = images.cuda()#[envs==3]
+            labels = labels#[envs==3]
             
             _, outputs = model(images)
+
+            # print(labels.shape, outputs.shape)
+
             all_targets = torch.cat((all_targets, labels),dim=0)
             all_preds = torch.cat((all_preds, outputs.argmax(dim=1).cpu()),dim=0)
             prec1 = accuracy(outputs.cpu().data, labels, topk=(1,))[0]
@@ -124,8 +142,8 @@ def get_id_energy(args, model, val_loader, epoch, log, method):
                 # env_E[j].update(e_s[envs == j].mean(), len(labels[envs == j]))
             in_energy.update(e_s.mean(), len(labels)) 
             energy = np.concatenate((energy, e_s))
-            energy_grey = np.concatenate((energy_grey, e_s[labels == 1]))
-            energy_nongrey = np.concatenate((energy_nongrey, e_s[labels == 0]))
+            # energy_grey = np.concatenate((energy_grey, e_s[labels == 1]))
+            # energy_nongrey = np.concatenate((energy_nongrey, e_s[labels == 0]))
             if i % args.print_freq == 0:
                 if args.in_dataset == 'color_mnist': 
                     log.debug('Epoch: [{0}] Batch#[{1}/{2}]\t'
@@ -204,7 +222,28 @@ def get_ood_loader(args, out_dataset, in_dataset = 'color_mnist'):
         return testloaderOut
 
 
+def getactivations(top, args):
+    if top == 0: return np.ones([1,512,1,1])
+    with open(f'experiments/{args.in_dataset}/{args.name}/activations/activations_id_at_epoch_30.npy', 'rb') as f:
+        acs = np.load(f)
+    
+    a = acs.mean(axis=0) # average ID activation pattern
+    
+    order = np.argsort(a) # find which units are most "important"/contributing
+    
+    topinds = order[-top:]  # get just the top of these units
+    mask = np.zeros(a.shape) # form a mask to only include top units
+    mask[topinds] = 1
+
+    # print(mask[order[0]]==1) # false 
+    # print(mask[order[-1]]==1) # true
+    # print(a[order[0]], a[order[-1]])
+    mask = np.reshape(mask, [1, 512, 1, 1]) # to match with GAP layer output shape
+    return mask
+
+
 def main():
+
     log = logging.getLogger(__name__)
     formatter = logging.Formatter('%(asctime)s : %(message)s')
     fileHandler = logging.FileHandler(os.path.join(directory, args.log_name), mode='w')
@@ -233,21 +272,21 @@ def main():
 
     model = model.cuda()
 
+    top = args.top # use this many of the last units
+    mask = getactivations(top, args)
+
     test_epochs = args.test_epochs.split()
     if args.in_dataset == 'color_mnist':
         out_datasets = ['partial_color_mnist_0&1', 'gaussian', 'dtd', 'iSUN', 'LSUN_resize']
     elif args.in_dataset == 'waterbird':
-        out_datasets = ['water', 'SVHN']
-        # out_datasets = ['gaussian', 'water', 'SVHN', 'iSUN', 'LSUN_resize', 'dtd']
+        out_datasets = ['placesbg', 'water', 'SVHN', 'iSUN', 'LSUN_resize']
+        # out_datasets = ['gaussian', 'placesbg', 'water', 'SVHN', 'iSUN', 'LSUN_resize']#, 'dtd']
     elif args.in_dataset == 'color_mnist_multi':
         out_datasets = ['partial_color_mnist_0&1']
     elif args.in_dataset == 'celebA':
-        out_datasets = ['celebA_ood', 'gaussian', 'SVHN', 'iSUN', 'LSUN_resize']
+        out_datasets = ['celebA_ood', 'SVHN', 'iSUN', 'LSUN_resize']
 
-    if args.in_dataset == 'color_mnist':
-        cpts_directory = "./checkpoints/{in_dataset}/{name}/{exp}".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
-    else:
-        cpts_directory = "./checkpoints/{in_dataset}/{name}/{exp}".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
+    cpts_directory = "./experiments/{in_dataset}/{name}/checkpoints".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
     
     for test_epoch in test_epochs:
         cpts_dir = os.path.join(cpts_directory, "checkpoint_{epochs}.pth.tar".format(epochs=test_epoch))
@@ -262,20 +301,20 @@ def main():
         model.load_state_dict(state_dict)
         model.eval()
         model.cuda()
-        save_dir =  f"./energy_results/{args.in_dataset}/{args.name}/{args.exp_name}"
+        save_dir =  f"./experiments/{args.in_dataset}/{args.name}/energy_results"
         if not os.path.exists(save_dir):
             os.makedirs(save_dir)
         print("processing ID dataset")
 
         #********** normal procedure **********
-        id_energy, _, _  = get_id_energy(args, model, val_loader, test_epoch, log, method=args.method)
-        with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}.npy'), 'wb') as f:
+        id_energy, _, _  = get_id_energy(args, model, val_loader, test_epoch, mask, log, method=args.method)
+        with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}_top{top}.npy'), 'wb') as f:
             np.save(f, id_energy)
         for out_dataset in out_datasets:
             print("processing OOD dataset ", out_dataset)
             testloaderOut = get_ood_loader(args, out_dataset, args.in_dataset)
-            ood_energy = get_ood_energy(args, model, testloaderOut, test_epoch, log, method=args.method)
-            with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}.npy'), 'wb') as f:
+            ood_energy = get_ood_energy(args, model, testloaderOut, test_epoch, mask, log, method=args.method)
+            with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}_top{top}.npy'), 'wb') as f:
                 np.save(f, ood_energy)
 
 if __name__ == '__main__':
