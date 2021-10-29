@@ -25,6 +25,8 @@ class Identity(nn.Module):
 
 def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=False)
+def conv1x1(in_planes, out_planes, stride=1):
+    return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, padding=1, bias=False)
 
 class BasicBlock(nn.Module):
     expansion = 1
@@ -138,15 +140,16 @@ class ResNet(nn.Module):
         tm = torch.load(path, map_location="cpu")        
         self.load_state_dict(tm)
     
+# https://neurohive.io/wp-content/uploads/2019/01/resnet-architectures-34-101.png 
+format = {'resnet18':[2,2,2,2], 'resnet34':[3,4,6,3], 'resnet50':[3,4,6,3]}
 
 
-
-def load_model(pretrained = False):
+def load_model(pretrained = False, arch='resnet18'):
     '''
-    load resnet18
+    load resnet
     '''
-    torch_model = ResNet(BasicBlock, [2,2,2,2], num_classes=2)
-    arch = 'resnet18'
+    torch_model = ResNet(BasicBlock, format[arch], num_classes=2)
+    # arch = 'resnet18'
     if pretrained:
         model_dict = torch_model.state_dict()
         pretrained_dict = torch.hub.load_state_dict_from_url(model_urls[arch],
@@ -159,5 +162,9 @@ def load_model(pretrained = False):
         torch_model.load_state_dict(model_dict)
     print("ResNet Loading Done")
     return torch_model
+
+
+
+
 if __name__ == "__main__":
     load_model(True)

@@ -14,7 +14,6 @@ from torch.utils.data import DataLoader
 
 
 from models.resnet import load_model
-# from algorithms import get_algorithm_class
 from datasets.color_mnist import get_biased_mnist_dataloader
 from datasets.cub_dataset import WaterbirdDataset
 from datasets.celebA_dataset import get_celebA_dataloader, celebAOodDataset
@@ -112,10 +111,10 @@ def get_id_energy(args, model, val_loader, epoch, mask, log, method):
     energy_grey = np.empty(0)
     energy_nongrey = np.empty(0)
 
+    wanted_envir = 0
+
     def edit_activation(mask, mod, inp, out):
-        # print(out.dtype, torch.mul(out, torch.tensor(mask, dtype=torch.float32).cuda()).dtype)
         return torch.mul(out, torch.tensor(mask, dtype=torch.float32).cuda())
-        # return
 
     model.avgpool.register_forward_hook(partial(edit_activation, mask))
 
@@ -124,12 +123,10 @@ def get_id_energy(args, model, val_loader, epoch, mask, log, method):
     with torch.no_grad():
         for i, (images, labels, envs) in enumerate(val_loader):
 
-            images = images.cuda()#[envs==3]
-            labels = labels#[envs==3]
+            images = images.cuda()[labels==0]
+            labels = labels[labels==0]
             
             _, outputs = model(images)
-
-            # print(labels.shape, outputs.shape)
 
             all_targets = torch.cat((all_targets, labels),dim=0)
             all_preds = torch.cat((all_preds, outputs.argmax(dim=1).cpu()),dim=0)
@@ -235,9 +232,6 @@ def getactivations(top, args):
     mask = np.zeros(a.shape) # form a mask to only include top units
     mask[topinds] = 1
 
-    # print(mask[order[0]]==1) # false 
-    # print(mask[order[-1]]==1) # true
-    # print(a[order[0]], a[order[-1]])
     mask = np.reshape(mask, [1, 512, 1, 1]) # to match with GAP layer output shape
     return mask
 
@@ -287,6 +281,7 @@ def main():
         out_datasets = ['celebA_ood', 'SVHN', 'iSUN', 'LSUN_resize']
 
     cpts_directory = "./experiments/{in_dataset}/{name}/checkpoints".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
+    # cpts_directory = "/nobackup/sonic/checkpoints/waterbird_temp/gdro_r_0_9/".format(in_dataset=args.in_dataset, name=args.name, exp=args.exp_name)
     
     for test_epoch in test_epochs:
         cpts_dir = os.path.join(cpts_directory, "checkpoint_{epochs}.pth.tar".format(epochs=test_epoch))

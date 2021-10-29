@@ -94,7 +94,7 @@ def get_id_activations(args, model, val_loader, epoch, log, method):
     activations = []
     activations_np = torch.tensor([])
 
-    wanted_envir = 3 # waterbird and water place. see cub_dataset.py for definitions
+    wanted_envir = 0 # see cub_dataset.py for definitions
 
     def save_activation(activations, mod, inp, out):
         activations.append(inp[0]) 
@@ -108,8 +108,8 @@ def get_id_activations(args, model, val_loader, epoch, log, method):
             images = images.cuda()
             _, outputs = model(images)
             
-            batchtivations = activations[-1].cpu() # get activations from this batch, filter by desired class/environment
-            # batchtivations = activations[-1][(envs == wanted_envir)].cpu() # get activations from this batch, filter by desired class/environment
+            # batchtivations = activations[-1].cpu() # get activations from this batch, filter by desired class/environment
+            batchtivations = activations[-1][(labels==0)].cpu() # get activations from this batch, filter by desired class/environment
             activations_np = torch.cat([activations_np, batchtivations], axis=0) # add to final structure
             
         
