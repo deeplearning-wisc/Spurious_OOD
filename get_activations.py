@@ -75,13 +75,15 @@ def get_ood_activations(args, model, val_loader, epoch, log, method):
     def save_activation(activations, mod, inp, out):
         activations.append(inp[0]) 
 
-    model.linear.register_forward_hook(partial(save_activation, activations))
+    # model.linear.register_forward_hook(partial(save_activation, activations))
+    model.model.fc.register_forward_hook(partial(save_activation, activations))
 
     model.eval()
     log.debug("######## Start collecting activations ########")
     with torch.no_grad():
         for i, (images, labels) in enumerate(val_loader): # batch
             images = images.cuda()
+            # _, 
             _, outputs = model(images)
             
             batchtivations = activations[-1].cpu() # get activations from this batch
@@ -99,17 +101,19 @@ def get_id_activations(args, model, val_loader, epoch, log, method):
     def save_activation(activations, mod, inp, out):
         activations.append(inp[0]) 
 
-    model.linear.register_forward_hook(partial(save_activation, activations))
+    # model.linear.register_forward_hook(partial(save_activation, activations))
+    model.model.fc.register_forward_hook(partial(save_activation, activations))
 
     model.eval()
     log.debug("######## Start collecting activations ########")
     with torch.no_grad():
         for i, (images, labels, envs) in enumerate(val_loader): # batch
             images = images.cuda()
+            # _, 
             _, outputs = model(images)
             
             # batchtivations = activations[-1].cpu() # get activations from this batch, filter by desired class/environment
-            batchtivations = activations[-1][(labels==0)].cpu() # get activations from this batch, filter by desired class/environment
+            batchtivations = activations[-1][(envs==3)].cpu() # get activations from this batch, filter by desired class/environment
             activations_np = torch.cat([activations_np, batchtivations], axis=0) # add to final structure
             
         
@@ -195,7 +199,9 @@ def main():
     # create model
     if args.model_arch == 'resnet18':
         model = load_model()
-
+    elif args.model_arch == 'resnet50':
+        model = load_model(arch='resnet50')
+        
     model = model.cuda()
     # w = model.linear.weight
 

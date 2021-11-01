@@ -126,7 +126,8 @@ def train(model, train_loaders, criterion, optimizer, epoch, log):
             input = input.cuda()
             target = target.cuda()
 
-            _, nat_output = model(input)
+            # _, 
+            nat_output = model(input)
             
             nat_loss = criterion(nat_output, target)
 
@@ -169,7 +170,8 @@ def validate(val_loader, model, criterion, epoch, log, method):
             input = input.cuda()
             target = target.cuda()
             # compute output
-            _, output = model(input)
+            # _, 
+            output = model(input)
             loss = criterion(output, target)
 
             # measure accuracy and record loss
@@ -246,6 +248,7 @@ def main():
     if torch.cuda.device_count() > 1:
         base_model = torch.nn.DataParallel(base_model)
 
+    # print(base_model)
 
     if args.method == "erm":
         model = base_model.cuda()
