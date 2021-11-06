@@ -75,8 +75,7 @@ def get_ood_activations(args, model, val_loader, epoch, log, method):
     def save_activation(activations, mod, inp, out):
         activations.append(inp[0]) 
 
-    # model.linear.register_forward_hook(partial(save_activation, activations))
-    model.model.fc.register_forward_hook(partial(save_activation, activations))
+    model.linear.register_forward_hook(partial(save_activation, activations))
 
     model.eval()
     log.debug("######## Start collecting activations ########")
@@ -95,14 +94,14 @@ def get_ood_activations(args, model, val_loader, epoch, log, method):
 def get_id_activations(args, model, val_loader, epoch, log, method):
     activations = []
     activations_np = torch.tensor([])
+    allenvs = torch.tensor([])
 
     wanted_envir = 0 # see cub_dataset.py for definitions
 
     def save_activation(activations, mod, inp, out):
         activations.append(inp[0]) 
 
-    # model.linear.register_forward_hook(partial(save_activation, activations))
-    model.model.fc.register_forward_hook(partial(save_activation, activations))
+    model.linear.register_forward_hook(partial(save_activation, activations))
 
     model.eval()
     log.debug("######## Start collecting activations ########")
@@ -112,13 +111,21 @@ def get_id_activations(args, model, val_loader, epoch, log, method):
             # _, 
             _, outputs = model(images)
             
-            # batchtivations = activations[-1].cpu() # get activations from this batch, filter by desired class/environment
-            batchtivations = activations[-1][(envs==3)].cpu() # get activations from this batch, filter by desired class/environment
+            batchtivations = activations[-1].cpu() # get activations from this batch, filter by desired class/environment
+            # batchtivations = activations[-1][(envs==0)].cpu() # get activations from this batch, filter by desired class/environment
             activations_np = torch.cat([activations_np, batchtivations], axis=0) # add to final structure
+            allenvs = torch.cat([allenvs, envs])
             
-        
+    
+    group_activations = []
+    for i in range(4):
+        group_activations.append(activations_np[allenvs==i])
+    class_activations = []
+    class_activations.append(torch.cat([activations_np[allenvs==0], activations_np[allenvs==1]]))
+    class_activations.append(torch.cat([activations_np[allenvs==2], activations_np[allenvs==3]]))
+
     print('ID examples', activations_np.shape[0])
-    return activations_np
+    return activations_np, group_activations, class_activations
 
 
 def get_ood_loader(args, out_dataset, in_dataset = 'color_mnist'):
@@ -191,7 +198,7 @@ def main():
 
 
     if args.in_dataset == "waterbird":
-        val_dataset = WaterbirdDataset(data_correlation=args.data_label_correlation, split='test')
+        val_dataset = WaterbirdDataset(data_correlation=args.data_label_correlation, split='train')
         val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
     elif args.in_dataset == "celebA":
         val_loader = get_celebA_dataloader(args, split='test')
@@ -234,9 +241,16 @@ def main():
         print("processing ID dataset")
 
         #********** normal procedure **********
-        id_activs = get_id_activations(args, model, val_loader, test_epoch, log, method=args.method)
-        with open(os.path.join(save_dir, f'activations_id_at_epoch_{test_epoch}.npy'), 'wb') as f:
+        id_activs, group_activs, class_activs = get_id_activations(args, model, val_loader, test_epoch, log, method=args.method)
+        with open(os.path.join(save_dir, f'activations_id_at_epoch_{test_epoch}_e0123.npy'), 'wb') as f:
             np.save(f, id_activs.cpu())
+        for i in range(4):
+            with open(os.path.join(save_dir, f'activations_id_at_epoch_{test_epoch}_e{i}.npy'), 'wb') as f:
+                np.save(f, group_activs[i].cpu())
+        e = ['01', '23']
+        for i in range(2):
+            with open(os.path.join(save_dir, f'activations_id_at_epoch_{test_epoch}_e{e[i]}.npy'), 'wb') as f:
+                np.save(f, class_activs[i].cpu())
         for out_dataset in out_datasets:
             print("processing OOD dataset ", out_dataset)
             testloaderOut = get_ood_loader(args, out_dataset, args.in_dataset)

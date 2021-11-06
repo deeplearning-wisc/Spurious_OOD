@@ -14,6 +14,7 @@ parser.add_argument('--in-dataset', default='celebA', type=str, help='in-distrib
 parser.add_argument('--test_epochs', "-e", default = "15 20 25", type=str,
                     help='# epoch to test performance')
 parser.add_argument('--top', '-t', default=0, type=int, help='number of top-contributing neurons used at test time')
+parser.add_argument('--environment', '-env', default='0123', type=str)
 args = parser.parse_args()
 
 def main():
@@ -24,16 +25,17 @@ def main():
         # out_datasets = ['placesbg', 'SVHN', 'iSUN', 'LSUN_resize', ] #'dtd']
     elif args.in_dataset == "celebA":
         out_datasets = ['celebA_ood', 'SVHN', 'iSUN', 'LSUN_resize']
+        
     fprs = dict()
     s = '' # will hold all info
     for test_epoch in args.test_epochs.split():
         all_results_ntom = []
         save_dir =  f"./experiments/{args.in_dataset}/{args.name}/energy_results" 
-        with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}_top{args.top}.npy'), 'rb') as f:
+        with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}_top{args.top}_e{args.environment}.npy'), 'rb') as f:
             id_sum_energy = np.load(f)
         all_results = defaultdict(int)
         for out_dataset in out_datasets:
-            with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}_top{args.top}.npy'), 'rb') as f:
+            with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}_top{args.top}_e{args.environment}.npy'), 'rb') as f:
                 ood_sum_energy = np.load(f)
             p, auroc, aupr, fpr = anom_utils.get_and_print_results(-1 * id_sum_energy, -1 * ood_sum_energy, f"{out_dataset}", f" Energy Sum at epoch {test_epoch}")
             s = s + p

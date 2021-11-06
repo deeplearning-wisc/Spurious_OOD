@@ -20,7 +20,7 @@ d = ''
 
 # read in activations
 
-with open(f'experiments/{dataset}/{name}/activations/activations_id_at_epoch_{epoch}.npy', 'rb') as f:
+with open(f'experiments/{dataset}/{name}/activations/activations_id_at_epoch_{epoch}_e0123.npy', 'rb') as f:
     idas = np.load(f) # id (waterbirds on water background)
 print('ID shape', idas.shape)
 

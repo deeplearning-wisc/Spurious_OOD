@@ -31,7 +31,7 @@ parser.add_argument('--method', default='erm', type=str, help='method used for m
 parser.add_argument('--print-freq', '-p', default=10, type=int, help='print frequency (default: 10)') 
 parser.add_argument('--domain-num', default=4, type=int,
                     help='the number of environments for model training')
-parser.add_argument('-b', '--batch-size', default= 64, type=int,
+parser.add_argument('-bs', '--batch-size', default= 64, type=int,
                     help='mini-batch size (default: 64) used for training id and ood')
 parser.add_argument('--num-classes', default=2, type=int,
                     help='number of classes for model training')
@@ -51,6 +51,9 @@ parser.add_argument('--multi-gpu', default=False, type=bool)
 parser.add_argument('--local_rank', default=-1, type=int,
                         help='rank for the current node')
 parser.add_argument('--top', '-t', default=0, type=int)
+parser.add_argument('--middle', '-m', default=0, type=int)
+parser.add_argument('--bottom', '-b', default=0, type=int)
+parser.add_argument('--environment', '-env', default='0123', type=str)
 
 args = parser.parse_args()
 
@@ -73,7 +76,7 @@ def get_ood_energy(args, model, val_loader, epoch, mask, log, method):
     def edit_activation(mask, mod, inp, out):
         return torch.mul(out, torch.tensor(mask, dtype=torch.float32).cuda())
 
-    model.model.avgpool.register_forward_hook(partial(edit_activation, mask))
+    model.avgpool.register_forward_hook(partial(edit_activation, mask))
 
     in_energy = AverageMeter()
     model.eval()
@@ -82,7 +85,6 @@ def get_ood_energy(args, model, val_loader, epoch, mask, log, method):
     with torch.no_grad():
         for i, (images, labels) in enumerate(val_loader):
             images = images.cuda()
-            # _, 
             _, outputs = model(images)
             e_s = -torch.logsumexp(outputs, dim=1)
             e_s = e_s.data.cpu().numpy() 
@@ -117,17 +119,16 @@ def get_id_energy(args, model, val_loader, epoch, mask, log, method):
     def edit_activation(mask, mod, inp, out):
         return torch.mul(out, torch.tensor(mask, dtype=torch.float32).cuda())
 
-    model.model.avgpool.register_forward_hook(partial(edit_activation, mask))
+    model.avgpool.register_forward_hook(partial(edit_activation, mask))
 
     model.eval()
     log.debug("######## Start collecting energy score ########")
     with torch.no_grad():
         for i, (images, labels, envs) in enumerate(val_loader):
 
-            images = images.cuda()[envs==3]
-            labels = labels[envs==3]
+            images = images.cuda() #[envs==0]
+            labels = labels #[envs==0]
             
-            # _, 
             _, outputs = model(images)
 
             all_targets = torch.cat((all_targets, labels),dim=0)
@@ -221,20 +222,20 @@ def get_ood_loader(args, out_dataset, in_dataset = 'color_mnist'):
         return testloaderOut
 
 
-def getactivations(top, args):
+def getactivations(args):
     shape = []
     if args.model_arch == 'resnet18': shape = [1,512,1,1]
     elif args.model_arch == 'resnet50': shape = [1,2048,1,1]
 
-    if top == 0: return np.ones(shape)
-    with open(f'experiments/{args.in_dataset}/{args.name}/activations/activations_id_at_epoch_{args.test_epochs}.npy', 'rb') as f:
+    if args.top == 0: return np.ones(shape)
+    with open(f'experiments/{args.in_dataset}/{args.name}/activations/activations_id_at_epoch_{args.test_epochs}_e{args.environment}.npy', 'rb') as f:
         acs = np.load(f)
     
     a = acs.mean(axis=0) # average ID activation pattern
     
     order = np.argsort(a) # find which units are most "important"/contributing
     
-    topinds = order[-top:]  # get just the top of these units
+    topinds = order[-args.top:]  # get just the top of these units
     mask = np.zeros(a.shape) # form a mask to only include top units
     mask[topinds] = 1
 
@@ -275,7 +276,9 @@ def main():
     model = model.cuda()
 
     top = args.top # use this many of the last units
-    mask = getactivations(top, args)
+    mid = args.middle
+    bot = args.bottom
+    mask = getactivations(args)
 
     test_epochs = args.test_epochs.split()
     if args.in_dataset == 'color_mnist':
@@ -313,15 +316,15 @@ def main():
 
         #********** normal procedure **********
         id_energy, _, _, acc  = get_id_energy(args, model, val_loader, test_epoch, mask, log, method=args.method)
-        with open(os.path.join(save_dir, f'id_test_acc_epoch_{test_epoch}_top{top}.txt'), 'w') as f:
+        with open(os.path.join(save_dir, f'id_test_acc_epoch_{test_epoch}_t{top}m{mid}b{bot}_e{args.environment}.txt'), 'w') as f:
             f.write(str(acc)+'\n')
-        with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}_top{top}.npy'), 'wb') as f:
+        with open(os.path.join(save_dir, f'energy_score_at_epoch_{test_epoch}_top{top}_e{args.environment}.npy'), 'wb') as f:
             np.save(f, id_energy)
         for out_dataset in out_datasets:
             print("processing OOD dataset ", out_dataset)
             testloaderOut = get_ood_loader(args, out_dataset, args.in_dataset)
             ood_energy = get_ood_energy(args, model, testloaderOut, test_epoch, mask, log, method=args.method)
-            with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}_top{top}.npy'), 'wb') as f:
+            with open(os.path.join(save_dir, f'energy_score_{out_dataset}_at_epoch_{test_epoch}_top{top}_e{args.environment}.npy'), 'wb') as f:
                 np.save(f, ood_energy)
 
 if __name__ == '__main__':
