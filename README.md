@@ -96,12 +96,10 @@ Notes for some of the arguments:
 ### For bibtex citation
 
 ```
-@misc{ming2021impact,
-      title={On the Impact of Spurious Correlation for Out-of-distribution Detection}, 
-      author={Yifei Ming and Hang Yin and Yixuan Li},
-      year={2021},
-      eprint={2109.05642},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG}
+@inproceedings{ming2022impact,
+              title={On the Impact of Spurious Correlation for Out-of-distribution Detection}, 
+              author={Yifei Ming and Hang Yin and Yixuan Li},
+              booktitle={AAAI Conference on Artificial Intelligence (AAAI)},
+              year={2022}
 }
 ```
