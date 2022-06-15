@@ -99,7 +99,7 @@ Notes for some of the arguments:
 @inproceedings{ming2022impact,
               title={On the Impact of Spurious Correlation for Out-of-distribution Detection}, 
               author={Yifei Ming and Hang Yin and Yixuan Li},
-              booktitle={AAAI Conference on Artificial Intelligence (AAAI)},
+              booktitle={The AAAI Conference on Artificial Intelligence (AAAI)},
               year={2022}
 }
 ```
